@@ -1,0 +1,18 @@
+# colcon
+build/
+install/
+log/
+
+# Python / C++
+__pycache__/
+*.pyc
+*.pyo
+
+# VS Code
+.vscode/
+
+# Docker
+.docker/
+
+# Misc
+*.swp

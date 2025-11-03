@@ -1,0 +1,31 @@
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        USER_UID: ${UID:-1000}
+        USER_GID: ${GID:-1000}
+        USERNAME: dev
+    image: tesis-ros2:humble-cpu
+    container_name: tesis_nav_dev
+    network_mode: host
+    ipc: host
+    environment:
+      - DISPLAY=${DISPLAY}
+      - ROS_DISTRO=humble
+    volumes:
+      - ./:/workspaces/tesis_nav_assistant_ws
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    tty: true
+
+    # === Para usar tu RTX después (NVIDIA), descomentar:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - capabilities: ["gpu"]
+    # runtime: nvidia
+    # environment:
+    #   - NVIDIA_VISIBLE_DEVICES=all
+    #   - NVIDIA_DRIVER_CAPABILITIES=all

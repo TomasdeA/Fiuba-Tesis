@@ -1,0 +1,46 @@
+{
+    "name": "Tesis ROS2 (CPU)",
+    "build": {
+        "dockerfile": "../docker/Dockerfile",
+        "args": {
+            "USER_UID": "1000",
+            "USER_GID": "1000",
+            "USERNAME": "dev"
+        }
+    },
+    "workspaceFolder": "/workspaces/tesis_nav_assistant_ws",
+    "remoteUser": "dev",
+    "runArgs": [
+        "--net=host",
+        "--ipc=host",
+        "--privileged",
+        "--group-add=video"
+    ],
+    "mounts": [
+        "source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind"
+    ],
+    "containerEnv": {
+        "DISPLAY": "${localEnv:DISPLAY}",
+        "QT_X11_NO_MITSHM": "1"
+    },
+    "postCreateCommand": "bash -lc 'source /opt/ros/humble/setup.bash && (sudo rosdep init 2>/dev/null || true) && (rosdep update --rosdistro humble || echo \"[WARN] rosdep update saltado (rate-limit)\")'",
+    "features": {
+        "ghcr.io/devcontainers/features/git:1": {},
+        "ghcr.io/devcontainers/features/common-utils:2": {}
+    },
+    "customizations": {
+        "vscode": {
+            "settings": {
+                "terminal.integrated.defaultProfile.linux": "bash",
+                "editor.formatOnSave": true
+            },
+            "extensions": [
+                "ms-iot.vscode-ros",
+                "twxs.cmake",
+                "ms-vscode.cmake-tools",
+                "eamodio.gitlens",
+                "xaver.clang-format"
+            ]
+        }
+    }
+}
