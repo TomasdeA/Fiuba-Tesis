@@ -1,9 +1,21 @@
-# Tesis – ROS 2 Humble (Baseline CPU)
+<p align="center">
+  <img src="Images/fiuba_logo.png" alt="FIUBA logo" width="280"/>
+</p>
 
-## Requisitos
-- Ubuntu 22.04
-- Docker + Docker Compose
-- (Opcional) VS Code + Dev Containers
+<h1 align="center">Tesis – Captación del entorno y mapeo local</h1>
+
+<p align="center">
+Facultad de Ingeniería – Universidad de Buenos Aires (FIUBA)
+</p>
+
+## Descripción
+Este repositorio contiene el desarrollo correspondiente a la tesis *“Captación del entorno y mapeo local”* de la carrera de Ingeniería Electrónica (FIUBA).
+
+El trabajo se enfoca en la adquisición y procesamiento de información de profundidad en tiempo real a partir de una cámara RGB-D, con el objetivo de generar una representación compacta del entorno inmediato frente al usuario.  
+Dicha representación se materializa en una matriz de baja resolución publicada como el tópico `/depth_grid`, que resume la información espacial relevante del frame actual.
+
+Sobre esta salida se proyecta el desarrollo de una **capa de mapeo local de corto alcance**, concebida como una memoria temporal de obstáculos recientemente detectados (No desarrollado todavia).
+Este mapa local permitirá aumentar la robustez del sistema frente a oclusiones, cambios de orientación del sensor y limitaciones del campo visual, habilitando en etapas posteriores estrategias de alerta anticipada ante colisiones potenciales fuera del campo de visión de la cámara.
 
 ## Levantar docker
 ```bash
