@@ -2,6 +2,7 @@
 #include <chrono>
 #include <sensor_msgs/msg/image.hpp>
 #include <std_msgs/msg/float32.hpp>
+#include "tesis_nav_mapper_cpp/depth_utils.hpp"
 
 using std::placeholders::_1;
 using namespace std::chrono_literals;
@@ -13,27 +14,50 @@ public:
     {
         depth_topic_ = this->declare_parameter<std::string>(
             "depth_topic", "/camera/camera/depth/image_rect_raw");
-            
-        sub_ = this->create_subscription<sensor_msgs::msg::Image>(
+        
+        grid_cfg_.rows  = static_cast<int>(this->declare_parameter<int>("rows", 1));
+        grid_cfg_.cols  = static_cast<int>(this->declare_parameter<int>("cols", 10));
+        // if rows = 1 and cols = 2, the output matrix will just indicate a left or right obstacle
+        grid_cfg_.z_min_m = static_cast<float>(this->declare_parameter<double>("z_min_m", 0.25));
+        grid_cfg_.z_max_m = static_cast<float>(this->declare_parameter<double>("z_max_m", 4.0));
+
+
+        // Subscriber of depth image (milimeters)
+        img_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
             depth_topic_, rclcpp::SensorDataQoS(),
-            std::bind(&DepthToMatrix::onDepth, this, _1));
+            std::bind(&DepthToMatrix::onDepthImage, this, _1));
+        
+        // Publisher of min depth grid (meters)
+        grid_pub_ = this->create_publisher<tesis_nav_interfaces::msg::DepthGrid>(
+            "/depth_grid", 10);
 
         heartbeat_ = this->create_wall_timer(
             1000ms, [this](){
                 RCLCPP_INFO(this->get_logger(),
-                "alive | sucribed to %s | images received: %zu",
+                "alive | subcribed to %s | images received: %zu",
                 depth_topic_.c_str(), image_count_);
             }
         );
-
+        
         RCLCPP_INFO(get_logger(), 
             "DepthToMatrix started. Waiting for images on %s",
             depth_topic_.c_str());
     }
 
 private:
-    void onDepth(sensor_msgs::msg::Image::SharedPtr msg){
+    void onDepthImage(sensor_msgs::msg::Image::SharedPtr msg){
         image_count_++;
+        
+        tesis_nav_interfaces::msg::DepthGrid grid; // Output
+
+        const bool ok = tesis_nav::compute_depth_stats(*msg, grid_cfg_, grid);
+        if (!ok) {
+            RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+                                 "Depth grid computation failed (encoding=%s)", msg->encoding.c_str());
+            return;
+        }
+
+        grid_pub_->publish(grid);
 
         // Run with --ros-args --log-level depth_to_matrix_node:=debug
         RCLCPP_DEBUG_THROTTLE(
@@ -42,16 +66,21 @@ private:
             msg->width,msg->height,msg->encoding.c_str(),
             msg->header.stamp.sec, msg->header.stamp.nanosec
         );
+
     }
 
     // Parameters
     std::string depth_topic_;
+    tesis_nav::GridConfig grid_cfg_;
 
     // Image counter
     size_t image_count_ = 0;
 
     // Subscriptors
-    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr sub_;
+    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr img_sub_;
+
+    // Publisher
+    rclcpp::Publisher<tesis_nav_interfaces::msg::DepthGrid>::SharedPtr grid_pub_;
 
     // Timer
     rclcpp::TimerBase::SharedPtr heartbeat_;

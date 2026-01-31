@@ -23,6 +23,8 @@ RUN groupadd --gid $USER_GID $USERNAME \
 
 SHELL ["/bin/bash", "-c"]
 RUN echo "source /opt/ros/humble/setup.bash" >> /etc/bash.bashrc
+ENV RUNNING_IN_CONTAINER=1
+RUN echo '[ -f /workspaces/tesis_nav_assistant_ws/tools/dev/context_env.sh ] && source /workspaces/tesis_nav_assistant_ws/tools/dev/context_env.sh' >> /etc/bash.bashrc
 
 WORKDIR /workspaces/tesis_nav_assistant_ws
 USER $USERNAME

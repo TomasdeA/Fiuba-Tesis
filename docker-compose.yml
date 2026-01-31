@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
+      network: host
       args:
         USER_UID: ${UID:-1000}
         USER_GID: ${GID:-1000}
@@ -11,15 +12,41 @@ services:
     container_name: tesis_nav_dev
     network_mode: host
     ipc: host
+
+    privileged: true
+
+    devices:
+      - "/dev/ttyACM0:/dev/ttyACM0"
+      - "/dev/bus/usb:/dev/bus/usb"
+
+      - "/dev/video0:/dev/video0"
+      - "/dev/video1:/dev/video1"
+      - "/dev/video2:/dev/video2"
+      - "/dev/video3:/dev/video3"
+      - "/dev/video4:/dev/video4"
+      - "/dev/video5:/dev/video5"
+      - "/dev/video6:/dev/video6"
+      - "/dev/video7:/dev/video7"
+
+    group_add:
+      - "dialout"
+      - "video"
+      - "plugdev"
+
     environment:
       - DISPLAY=${DISPLAY}
       - ROS_DISTRO=humble
+      - RUNNING_IN_CONTAINER=1
+      - BASH_ENV=/etc/profile.d/context.sh
     volumes:
       - ./:/workspaces/tesis_nav_assistant_ws
       - /tmp/.X11-unix:/tmp/.X11-unix
+      - ./docker/context.sh:/etc/profile.d/context.sh:ro
+    working_dir: /workspaces/tesis_nav_assistant_ws
     tty: true
 
-    # === Para usar tu RTX después (NVIDIA), descomentar:
+
+    # === To use RTX :
     # deploy:
     #   resources:
     #     reservations:

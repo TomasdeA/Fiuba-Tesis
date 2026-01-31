@@ -16,3 +16,6 @@ __pycache__/
 
 # Misc
 *.swp
+
+# Notes
+notes/

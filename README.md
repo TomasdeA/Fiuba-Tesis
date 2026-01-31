@@ -5,11 +5,11 @@
 - Docker + Docker Compose
 - (Opcional) VS Code + Dev Containers
 
-## Primer uso
+## Levantar docker
 ```bash
 cd ~/tesis_nav_assistant_ws
-make build
-make run   # entra al contenedor
+make build # Construye las imágenes de Docker definidas en docker-compose.yml
+make run   # Levanta todos los servicios definidos en docker-compose.yml y entra al contenedor
 # Dentro:
 source /opt/ros/humble/setup.bash
 colcon build

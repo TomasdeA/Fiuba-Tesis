@@ -6,7 +6,7 @@ build:
 	docker compose build
 
 shell:
-	docker compose run --rm dev bash
+	docker exec -it tesis_nav_dev bash
 
 run:
 	docker compose up -d && docker exec -it tesis_nav_dev bash
