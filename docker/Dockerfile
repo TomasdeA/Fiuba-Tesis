@@ -4,6 +4,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sudo git curl wget bash-completion locales tzdata \
     python3-colcon-common-extensions python3-vcstool python3-argcomplete \
     build-essential cmake clang-format clang-tidy \
+    python3-numpy python3-matplotlib \
     # === ROS & visión ===
     ros-humble-realsense2-camera \
     ros-humble-vision-opencv \        
