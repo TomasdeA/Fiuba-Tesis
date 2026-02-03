@@ -2,13 +2,6 @@
 # Contexto host vs container + helpers
 # Debe ser SOURCEADO desde .bashrc/.bash_profile (no ejecutado)
 
-# Evitar doble carga (pero permitir forzar re-aplicar)
-if [[ -n "${__CTX_INIT_DONE:-}" ]] && [[ -z "${CTX_FORCE:-}" ]]; then
-  return 0
-fi
-__CTX_INIT_DONE=1
-
-
 # -------- Detección de container --------
 _is_container() {
   if [ -f "/.dockerenv" ]; then
@@ -29,6 +22,32 @@ else
   export SHELL_CONTEXT="host"
 fi
 
+# -------- Forzar tag en PS1 al final (evitando que ~/.bashrc lo pise) --------
+__ctx_apply_ps1() {
+  [[ $- == *i* ]] || return 0
+  [ -z "${CTX_KEEP_PS1:-}" ] || return 0
+
+  local tag
+  if [ "$SHELL_CONTEXT" = "container" ]; then
+    tag="\[\e[1;33m\][docker]\[\e[0m\] "
+  else
+    tag="\[\e[1;36m\][local]\[\e[0m\] "
+  fi
+
+  # Evitar duplicar
+  case "$PS1" in
+    *"[docker]"*|*"[local]"*) : ;;
+    *) PS1="${tag}${PS1}" ;;
+  esac
+}
+
+if [ -n "${PROMPT_COMMAND:-}" ]; then
+  PROMPT_COMMAND="__ctx_apply_ps1; $PROMPT_COMMAND"
+else
+  PROMPT_COMMAND="__ctx_apply_ps1"
+fi
+export PROMPT_COMMAND
+
 # -------- Banner 1 sola vez por sesión interactiva --------
 if [[ $- == *i* ]] && [ -z "${_CTX_BANNER_SHOWN:-}" ] && [ -z "${CTX_SKIP_BANNER:-}" ]; then
   if [ "$SHELL_CONTEXT" = "container" ]; then
@@ -39,14 +58,11 @@ if [[ $- == *i* ]] && [ -z "${_CTX_BANNER_SHOWN:-}" ] && [ -z "${CTX_SKIP_BANNER
   export _CTX_BANNER_SHOWN=1
 fi
 
-# -------- Prompt con etiqueta --------
-if [ -z "${CTX_KEEP_PS1:-}" ]; then
-  if [ "$SHELL_CONTEXT" = "container" ]; then
-    export PS1="\[\e[1;33m\][docker]\[\e[0m\] \u@\h:\w\$ "
-  else
-    export PS1="\[\e[1;36m\][local]\[\e[0m\] \u@\h:\w\$ "
-  fi
+# -------- Evitar doble carga del init pesado (pero permitir forzar re-aplicar) --------
+if [[ -n "${__CTX_INIT_DONE:-}" ]] && [[ -z "${CTX_FORCE:-}" ]]; then
+  return 0
 fi
+__CTX_INIT_DONE=1
 
 # -------- Helpers de contexto --------
 _require_container() {
@@ -62,23 +78,18 @@ _require_host() {
   fi
 }
 
-# Macros
-only_in_container() { _require_container || return 1; "$@"; }
-only_on_host()      { _require_host || return 1;      "$@"; }
+# -------- Root del repo (nav_mapper) --------
+_CTX_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WS_ROOT="$(cd "$_CTX_DIR/../.." && pwd)"
+export WS_ROOT
 
-# -------- Aliases / funciones de ejemplo --------
-dk-logs()       { _require_container || return 1; tail -F /var/log/app/*.log 2>/dev/null || tail -F /var/log/*.log; }
-dk-enter()      { _require_host || return 1; docker exec -it "${1:?container_name}" bash; }
-rosdep-update() { _require_container || return 1; sudo rosdep update; }
-
-# -------- Sourcing condicionado (editá a gusto) --------
+# -------- Sourcing condicionado --------
 if [ "$SHELL_CONTEXT" = "container" ]; then
-  # ROS adentro del contenedor
-  [ -f /opt/ros/foxy/setup.bash ] && source /opt/ros/humble/setup.bash
-  [ -f ~/ws/install/setup.bash ]   && source ~/workspace/tesis_nav_assistant_ws/install/setup.bash
+  [ -f /opt/ros/humble/setup.bash ] && source /opt/ros/humble/setup.bash
+  [ -f "$WS_ROOT/install/setup.bash" ] && source "$WS_ROOT/install/setup.bash"
 else
-  # Cosas del host
   [ -f /usr/share/bash-completion/bash_completion ] && source /usr/share/bash-completion/bash_completion
+  [ -f "$WS_ROOT/install/setup.bash" ] && source "$WS_ROOT/install/setup.bash"
 fi
 
 # -------- Comandos del usuario (con guardas de contexto) --------
@@ -86,24 +97,22 @@ fi
 # 1) Solo dentro del contenedor: Realsense
 rs-start() {
   _require_container || return 1
-  # Si necesitás activar ROS dentro del contenedor, debería estar ya en la sección de sourcing.
   ros2 launch realsense2_camera rs_launch.py \
-    enable_gyro:=true enable_accel:=true align_depth:=true
+    enable_gyro:=false enable_accel:=false
 }
 
 # 2) Solo en el host: correr tesis
 tesis-run() {
   _require_host || return 1
-  local WS="$HOME/tesis_nav_assistant_ws"
-  if [ ! -d "$WS" ]; then
-    echo "No encuentro $WS. Ajustá la ruta en context_env.sh." >&2
+  if [ ! -d "$WS_ROOT" ]; then
+    echo "No encuentro WS_ROOT=$WS_ROOT. ¿Se sourceó context_env.sh?" >&2
     return 1
   fi
-  cd "$WS" || return 1
+  cd "$WS_ROOT" || return 1
   make run
 }
 
-# (Opcional) si igual querés tener *aliases*, los apuntamos a las funciones:
-alias rs-start='rs-start'
-alias tesis-run='tesis-run'
-
+nav-start()        { ros2 launch nav_bringup nav.launch.py; }
+nav-start-hw()     { ros2 launch nav_bringup nav.launch.py use_hw:=true; }
+nav-start-viz()    { ros2 launch nav_bringup nav.launch.py use_viz:=true; }
+nav-start-hw-viz() { ros2 launch nav_bringup nav.launch.py use_hw:=true use_viz:=true; }

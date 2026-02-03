@@ -9,7 +9,7 @@ shell:
 	docker exec -it tesis_nav_dev bash
 
 run:
-	docker compose up -d && docker exec -it tesis_nav_dev bash
+	docker compose up -d && docker exec -it tesis_nav_dev bash -l
 
 clean:
 	docker compose down -v

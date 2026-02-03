@@ -3,22 +3,19 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
-      network: host
       args:
         USER_UID: ${UID:-1000}
         USER_GID: ${GID:-1000}
-        USERNAME: dev
+        USERNAME: tomasdea
     image: tesis-ros2:humble-cpu
     container_name: tesis_nav_dev
     network_mode: host
     ipc: host
-
     privileged: true
 
     devices:
       - "/dev/ttyACM0:/dev/ttyACM0"
       - "/dev/bus/usb:/dev/bus/usb"
-
       - "/dev/video0:/dev/video0"
       - "/dev/video1:/dev/video1"
       - "/dev/video2:/dev/video2"
@@ -38,21 +35,12 @@ services:
       - ROS_DISTRO=humble
       - RUNNING_IN_CONTAINER=1
       - BASH_ENV=/etc/profile.d/context.sh
+      - WS_PATH=${CONTAINER_WS}
+
     volumes:
-      - ./:/workspaces/tesis_nav_assistant_ws
+      - ${HOST_WS}:${CONTAINER_WS}
       - /tmp/.X11-unix:/tmp/.X11-unix
       - ./docker/context.sh:/etc/profile.d/context.sh:ro
-    working_dir: /workspaces/tesis_nav_assistant_ws
+
+    working_dir: ${CONTAINER_WS}
     tty: true
-
-
-    # === To use RTX :
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - capabilities: ["gpu"]
-    # runtime: nvidia
-    # environment:
-    #   - NVIDIA_VISIBLE_DEVICES=all
-    #   - NVIDIA_DRIVER_CAPABILITIES=all

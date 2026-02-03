@@ -1,11 +1,8 @@
-# /etc/profile.d/context.sh (se monta read-only desde el host)
-# Se ejecuta en shells de login y también lo toma BASH_ENV para no-interactivas
-
-WS=/workspaces/tesis_nav_assistant_ws
+# /etc/profile.d/context.sh (read-only)
+WS="${WS_PATH:-/home/tomasdea/Tesis/develop/nav_mapper}"
 CTX="$WS/tools/dev/context_env.sh"
 
-# Sorcear si existe
 if [ -f "$CTX" ]; then
-  # shellcheck source=/dev/null
   . "$CTX"
 fi
+
