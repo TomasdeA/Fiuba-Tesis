@@ -6,7 +6,7 @@ from rclpy.node import Node
 import numpy as np
 import matplotlib.pyplot as plt
 
-from tesis_nav_interfaces.msg import DepthGrid
+from custom_interfaces.msg import DepthGrid
 
 
 def extract_distance_and_count(msg: DepthGrid):

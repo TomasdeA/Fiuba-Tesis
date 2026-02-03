@@ -16,7 +16,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
-find_package(tesis_nav_interfaces REQUIRED)
+find_package(custom_interfaces REQUIRED)
 
 # Principal executable
 add_executable(depth_to_matrix 
@@ -33,7 +33,7 @@ ament_target_dependencies(depth_to_matrix
     rclcpp 
     sensor_msgs 
     std_msgs
-    tesis_nav_interfaces)
+    custom_interfaces)
 
 # Instalation
 install(TARGETS depth_to_matrix

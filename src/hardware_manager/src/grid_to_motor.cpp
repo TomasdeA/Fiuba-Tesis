@@ -7,7 +7,7 @@
 #include <vector>
 
 #include "rclcpp/rclcpp.hpp"
-#include "tesis_nav_interfaces/msg/depth_grid.hpp"
+#include "custom_interfaces/msg/depth_grid.hpp"
 
 #include <fcntl.h>
 #include <termios.h>
@@ -73,7 +73,7 @@ public:
 
     open_uart();
 
-    sub_ = this->create_subscription<tesis_nav_interfaces::msg::DepthGrid>(
+    sub_ = this->create_subscription<custom_interfaces::msg::DepthGrid>(
       topic_, 10,
       std::bind(&DepthGridToUart::on_grid, this, std::placeholders::_1)
     );
@@ -131,7 +131,7 @@ private:
     RCLCPP_INFO(get_logger(), "UART abierto %s @ %d", port_.c_str(), baud_);
   }
 
-  void on_grid(const tesis_nav_interfaces::msg::DepthGrid::SharedPtr msg)
+  void on_grid(const custom_interfaces::msg::DepthGrid::SharedPtr msg)
   {
     // throttle
     const auto now = this->now();
@@ -205,7 +205,7 @@ private:
   int fd_{-1};
 
   // ROS
-  rclcpp::Subscription<tesis_nav_interfaces::msg::DepthGrid>::SharedPtr sub_;
+  rclcpp::Subscription<custom_interfaces::msg::DepthGrid>::SharedPtr sub_;
   rclcpp::Time last_send_time_{0, 0, RCL_ROS_TIME};
 };
 

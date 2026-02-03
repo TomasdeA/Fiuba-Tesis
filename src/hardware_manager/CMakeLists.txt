@@ -9,12 +9,12 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 
-find_package(tesis_nav_interfaces REQUIRED)
+find_package(custom_interfaces REQUIRED)
 
 add_executable(motor_sweep_uart src/motor_sweep_uart.cpp)
 ament_target_dependencies(motor_sweep_uart rclcpp)
 add_executable(grid_to_motor src/grid_to_motor.cpp)
-ament_target_dependencies(grid_to_motor rclcpp tesis_nav_interfaces)
+ament_target_dependencies(grid_to_motor rclcpp custom_interfaces)
 
 install(TARGETS
   motor_sweep_uart

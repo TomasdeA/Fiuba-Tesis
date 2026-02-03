@@ -28,7 +28,7 @@ public:
             std::bind(&DepthToMatrix::onDepthImage, this, _1));
         
         // Publisher of min depth grid (meters)
-        grid_pub_ = this->create_publisher<tesis_nav_interfaces::msg::DepthGrid>(
+        grid_pub_ = this->create_publisher<custom_interfaces::msg::DepthGrid>(
             "/depth_grid", 10);
 
         heartbeat_ = this->create_wall_timer(
@@ -48,7 +48,7 @@ private:
     void onDepthImage(sensor_msgs::msg::Image::SharedPtr msg){
         image_count_++;
         
-        tesis_nav_interfaces::msg::DepthGrid grid; // Output
+        custom_interfaces::msg::DepthGrid grid; // Output
 
         const bool ok = tesis_nav::compute_depth_stats(*msg, grid_cfg_, grid);
         if (!ok) {
@@ -80,7 +80,7 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr img_sub_;
 
     // Publisher
-    rclcpp::Publisher<tesis_nav_interfaces::msg::DepthGrid>::SharedPtr grid_pub_;
+    rclcpp::Publisher<custom_interfaces::msg::DepthGrid>::SharedPtr grid_pub_;
 
     // Timer
     rclcpp::TimerBase::SharedPtr heartbeat_;

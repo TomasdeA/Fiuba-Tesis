@@ -3,8 +3,8 @@
 
 namespace tesis_nav {
 
-using tesis_nav_interfaces::msg::DepthGrid;
-using tesis_nav_interfaces::msg::DepthCellStats;
+using custom_interfaces::msg::DepthGrid;
+using custom_interfaces::msg::DepthCellStats;
 
 // Simple view over a 16UC1 depth image (values in meters)
 struct DepthView16UC1 {

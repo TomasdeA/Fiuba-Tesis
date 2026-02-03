@@ -4,8 +4,8 @@
 #include <limits> 
 #include <cassert>
 
-#include "tesis_nav_interfaces/msg/depth_grid.hpp"
-#include "tesis_nav_interfaces/msg/depth_cell_stats.hpp"
+#include "custom_interfaces/msg/depth_grid.hpp"
+#include "custom_interfaces/msg/depth_cell_stats.hpp"
 
 namespace tesis_nav {
     
@@ -35,16 +35,16 @@ struct GridConfig {
  *******************************************************************/
 
 // Safe access to a grid cell (mutable)
-inline tesis_nav_interfaces::msg::DepthCellStats&
-at(tesis_nav_interfaces::msg::DepthGrid & grid, size_t r, size_t c)
+inline custom_interfaces::msg::DepthCellStats&
+at(custom_interfaces::msg::DepthGrid & grid, size_t r, size_t c)
 {
     assert(r < grid.rows && c < grid.cols);
     return grid.cells[r * grid.cols + c];
 }
 
 // Safe access to a grid cell (const)
-inline const tesis_nav_interfaces::msg::DepthCellStats&
-at(const tesis_nav_interfaces::msg::DepthGrid & grid, size_t r, size_t c)
+inline const custom_interfaces::msg::DepthCellStats&
+at(const custom_interfaces::msg::DepthGrid & grid, size_t r, size_t c)
 {
     assert(r < grid.rows && c < grid.cols);
     return grid.cells[r * grid.cols + c];
@@ -52,7 +52,7 @@ at(const tesis_nav_interfaces::msg::DepthGrid & grid, size_t r, size_t c)
 
 // Allocate and size the DepthGrid message.
 // Ensures that `cells` contains rows × cols entries.
-inline void allocate(tesis_nav_interfaces::msg::DepthGrid & grid,
+inline void allocate(custom_interfaces::msg::DepthGrid & grid,
                      uint32_t rows, uint32_t cols)
 {
     grid.rows = rows;
@@ -65,6 +65,6 @@ inline void allocate(tesis_nav_interfaces::msg::DepthGrid & grid,
 // Convert a depth image into a row × col grid of cell statistics.
 bool compute_depth_stats(   const sensor_msgs::msg::Image& msg,
                             const GridConfig& cfg,
-                            tesis_nav_interfaces::msg::DepthGrid& out);
+                            custom_interfaces::msg::DepthGrid& out);
 
 } // namespace tesis_nav
