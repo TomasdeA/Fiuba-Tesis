@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-numpy python3-matplotlib \
     # === ROS & visión ===
     ros-humble-realsense2-camera \
-    ros-humble-vision-opencv \        
+    ros-humble-vision-opencv \
     # cv_bridge + image_geometry
     ros-humble-rqt ros-humble-rqt-image-view \
     # === OpenCV GUI (imshow) ===
