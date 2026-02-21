@@ -88,6 +88,16 @@ _require_host() {
   fi
 }
 
+_is_raspi_host() {
+  # True si estamos en una Raspberry Pi (host), sin depender del OS exacto
+  # /proc/device-tree/model existe en Raspi. En PCs normalmente no.
+  if [ -r /proc/device-tree/model ]; then
+    if tr -d '\0' </proc/device-tree/model | grep -qi 'raspberry pi'; then
+      return 0
+    fi
+  fi
+  return 1
+}
 # -------- Root del repo (nav_mapper) --------
 _CTX_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WS_ROOT="$(cd "$_CTX_DIR/../.." && pwd)"
@@ -114,12 +124,27 @@ rs-start() {
 # 2) Solo en el host: correr tesis
 tesis-run() {
   _require_host || return 1
+
   if [ ! -d "$WS_ROOT" ]; then
     echo "No encuentro WS_ROOT=$WS_ROOT. ¿Se sourceó context_env.sh?" >&2
     return 1
   fi
+
   cd "$WS_ROOT" || return 1
-  make run
+
+  local compose_file=""
+  if _is_raspi_host; then
+    compose_file="docker-compose.raspi.yml"
+    echo "[tesis-run] Host detectado: RASPI -> usando $compose_file"
+    docker compose -f "$compose_file" up -d || return 1
+  else
+    compose_file="docker-compose.yml"
+    echo "[tesis-run] Host detectado: PC -> usando $compose_file"
+    docker compose -f "$compose_file" up -d || return 1
+  fi
+
+  echo "[tesis-run] Entrando al contenedor tesis_nav_dev..."
+  docker exec -it tesis_nav_dev bash -l
 }
 
 nav-start()        { ros2 launch nav_bringup nav.launch.py; }
