@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.5
-FROM osrf/ros:humble-ros-base
+FROM ros:humble-ros-base
 
 SHELL ["/bin/bash", "-c"]
 

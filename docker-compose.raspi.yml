@@ -1,0 +1,37 @@
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        USER_UID: ${UID:-1000}
+        USER_GID: ${GID:-1000}
+        USERNAME: tomasdea
+    image: tesis-ros2:humble-cpu-arm64
+    container_name: tesis_nav_dev
+    platform: linux/arm64
+    network_mode: host
+    ipc: host
+    privileged: true
+
+    group_add:
+      - "dialout"
+      - "video"
+      - "plugdev"
+
+    environment:
+      - ROS_DISTRO=humble
+      - RUNNING_IN_CONTAINER=1
+      - BASH_ENV=/etc/profile.d/context.sh
+      - WS_PATH=${CONTAINER_WS}
+      - ROS_DOMAIN_ID=0
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+
+    volumes:
+      - /dev:/dev
+      - /run/udev:/run/udev:ro
+      - ${HOST_WS}:${CONTAINER_WS}
+      - ./docker/context.sh:/etc/profile.d/context.sh:ro
+
+    working_dir: ${CONTAINER_WS}
+    tty: true
