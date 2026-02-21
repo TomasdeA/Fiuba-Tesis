@@ -15,7 +15,7 @@ public:
         depth_topic_ = this->declare_parameter<std::string>(
             "depth_topic", "/camera/camera/depth/image_rect_raw");
         
-        grid_cfg_.rows  = static_cast<int>(this->declare_parameter<int>("rows", 1));
+        grid_cfg_.rows  = static_cast<int>(this->declare_parameter<int>("rows", 5));
         grid_cfg_.cols  = static_cast<int>(this->declare_parameter<int>("cols", 10));
         // if rows = 1 and cols = 2, the output matrix will just indicate a left or right obstacle
         grid_cfg_.z_min_m = static_cast<float>(this->declare_parameter<double>("z_min_m", 0.25));

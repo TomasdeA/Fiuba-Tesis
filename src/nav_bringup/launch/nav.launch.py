@@ -14,6 +14,9 @@ def generate_launch_description():
     use_hw = LaunchConfiguration("use_hw")
     use_viz = LaunchConfiguration("use_viz")
 
+    ws = EnvironmentVariable("WS_PATH")
+    default_cfg = [ws, "/src/tesis_nav_mapper_cpp/config/depth_to_matrix.yaml"]
+    
     # ---- RealSense launch include ----
     realsense_pkg_share = get_package_share_directory("realsense2_camera")
     rs_launch_path = os.path.join(realsense_pkg_share, "launch", "rs_launch.py")
@@ -31,6 +34,7 @@ def generate_launch_description():
         executable="depth_to_matrix",
         name="depth_to_matrix",
         output="screen",
+        parameters=[LaunchConfiguration("params_file")],
     )
 
     hw_manager = Node(
@@ -61,6 +65,11 @@ def generate_launch_description():
             description="Start output viewer heatmap node",
         ),
 
+        DeclareLaunchArgument(
+            "params_file",
+            default_value=default_cfg,
+            description="Path to the ROS2 params file (depth_to_matrix.yaml).",
+        ),
         realsense,
         depth_to_matrix,
         hw_manager,

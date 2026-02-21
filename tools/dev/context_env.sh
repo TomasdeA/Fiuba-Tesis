@@ -41,12 +41,22 @@ __ctx_apply_ps1() {
   esac
 }
 
-if [ -n "${PROMPT_COMMAND:-}" ]; then
-  PROMPT_COMMAND="__ctx_apply_ps1; $PROMPT_COMMAND"
-else
-  PROMPT_COMMAND="__ctx_apply_ps1"
+__ctx_prompt_hook() {
+  # solo si existe la función (en ESTE shell)
+  if declare -F __ctx_apply_ps1 >/dev/null 2>&1; then
+    __ctx_apply_ps1
+  fi
+}
+
+if [[ $- == *i* ]]; then
+  if [ -n "${PROMPT_COMMAND:-}" ]; then
+    PROMPT_COMMAND="__ctx_prompt_hook; $PROMPT_COMMAND"
+  else
+    PROMPT_COMMAND="__ctx_prompt_hook"
+  fi
+  export PROMPT_COMMAND
 fi
-export PROMPT_COMMAND
+
 
 # -------- Banner 1 sola vez por sesión interactiva --------
 if [[ $- == *i* ]] && [ -z "${_CTX_BANNER_SHOWN:-}" ] && [ -z "${CTX_SKIP_BANNER:-}" ]; then

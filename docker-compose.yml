@@ -13,18 +13,6 @@ services:
     ipc: host
     privileged: true
 
-    devices:
-      - "/dev/ttyACM0:/dev/ttyACM0"
-      - "/dev/bus/usb:/dev/bus/usb"
-      - "/dev/video0:/dev/video0"
-      - "/dev/video1:/dev/video1"
-      - "/dev/video2:/dev/video2"
-      - "/dev/video3:/dev/video3"
-      - "/dev/video4:/dev/video4"
-      - "/dev/video5:/dev/video5"
-      - "/dev/video6:/dev/video6"
-      - "/dev/video7:/dev/video7"
-
     group_add:
       - "dialout"
       - "video"
@@ -38,6 +26,8 @@ services:
       - WS_PATH=${CONTAINER_WS}
 
     volumes:
+      - /dev:/dev
+      - /run/udev:/run/udev:ro
       - ${HOST_WS}:${CONTAINER_WS}
       - /tmp/.X11-unix:/tmp/.X11-unix
       - ./docker/context.sh:/etc/profile.d/context.sh:ro
