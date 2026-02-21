@@ -12,9 +12,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-colcon-common-extensions python3-vcstool python3-argcomplete \
     build-essential cmake clang-format clang-tidy \
     python3-numpy python3-matplotlib \
-    # === ROS & visión ===
-    ros-humble-realsense2-camera \
-    ros-humble-vision-opencv \
     # cv_bridge + image_geometry
     ros-humble-rqt ros-humble-rqt-image-view \
     # === OpenCV GUI (imshow) ===
@@ -62,6 +59,9 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
       set -e; \
       LATEST="$(ls -1 /usr/local/lib/librealsense2.so.2.*.* 2>/dev/null | sort -V | tail -n1)"; \
       echo "Using $LATEST"; \
+      if [ -f /opt/ros/humble/lib/aarch64-linux-gnu/librealsense2.so.2.56 ]; then \
+        rm -f /opt/ros/humble/lib/aarch64-linux-gnu/librealsense2.so.2.56; \
+      fi; \
       ln -sf "$LATEST" /opt/ros/humble/lib/aarch64-linux-gnu/librealsense2.so.2.56; \
       ldconfig; \
     fi
