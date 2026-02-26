@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(tesis_nav_mapper_cpp)
+project(depth_grid_encoder)
 
 # C++17
 set(CMAKE_CXX_STANDARD 17)

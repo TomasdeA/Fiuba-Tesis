@@ -15,7 +15,7 @@ def generate_launch_description():
     use_viz = LaunchConfiguration("use_viz")
 
     ws = EnvironmentVariable("WS_PATH")
-    default_cfg = [ws, "/src/tesis_nav_mapper_cpp/config/depth_to_matrix.yaml"]
+    default_cfg = [ws, "/src/depth_grid_encoder/config/depth_to_matrix.yaml"]
     
     # ---- RealSense launch include ----
     realsense_pkg_share = get_package_share_directory("realsense2_camera")
@@ -30,7 +30,7 @@ def generate_launch_description():
     )
 
     depth_to_matrix = Node(
-        package="tesis_nav_mapper_cpp",
+        package="depth_grid_encoder",
         executable="depth_to_matrix",
         name="depth_to_matrix",
         output="screen",

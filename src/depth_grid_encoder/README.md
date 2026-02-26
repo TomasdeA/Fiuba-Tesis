@@ -14,4 +14,4 @@ Terminal 2
 1. source /opt/ros/humble/setup.bash
 2. source /workspaces/tesis_nav_assistant_ws/install/setup.bash
 3. colcon build
-4. ros2 run tesis_nav_mapper_cpp depth_to_matrix
+4. ros2 run depth_grid_encoder depth_to_matrix

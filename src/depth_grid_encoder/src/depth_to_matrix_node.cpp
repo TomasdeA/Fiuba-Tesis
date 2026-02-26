@@ -2,7 +2,7 @@
 #include <chrono>
 #include <sensor_msgs/msg/image.hpp>
 #include <std_msgs/msg/float32.hpp>
-#include "tesis_nav_mapper_cpp/depth_utils.hpp"
+#include "depth_grid_encoder/depth_utils.hpp"
 
 using std::placeholders::_1;
 using namespace std::chrono_literals;

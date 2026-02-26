@@ -42,7 +42,7 @@ ros2 launch realsense2_camera rs_launch.py enable_gyro:=false enable_accel:=fals
 ```bash
 make shell
 source install/setup.bash
-ros2 run tesis_nav_mapper_cpp depth_to_matrix 
+ros2 run depth_grid_encoder depth_to_matrix 
 ```
 **Terminal 3**
 ```bash
@@ -55,7 +55,7 @@ ros2 run output_viewer depth_grid_heatmap
 ### `src/`
 Contiene los paquetes ROS 2 del workspace.
 
-- **`tesis_nav_mapper_cpp`**  
+- **`depth_grid_encoder`**  
   Genera el tópico `/depth_grid` a partir de la imagen de profundidad de la cámara RealSense.
 
 - **`tesis_nav_interfaces`**  
