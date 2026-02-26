@@ -38,16 +38,22 @@ struct GridConfig {
 inline custom_interfaces::msg::DepthCellStats&
 at(custom_interfaces::msg::DepthGrid & grid, size_t r, size_t c)
 {
-    assert(r < grid.rows && c < grid.cols);
-    return grid.cells[r * grid.cols + c];
+    assert(grid.rows >= 0 && grid.cols >= 0);
+    const size_t rows = static_cast<size_t>(grid.rows);
+    const size_t cols = static_cast<size_t>(grid.cols);
+    assert(r < rows && c < cols);
+    return grid.cells[r * cols + c];
 }
 
 // Safe access to a grid cell (const)
 inline const custom_interfaces::msg::DepthCellStats&
 at(const custom_interfaces::msg::DepthGrid & grid, size_t r, size_t c)
 {
-    assert(r < grid.rows && c < grid.cols);
-    return grid.cells[r * grid.cols + c];
+    assert(grid.rows >= 0 && grid.cols >= 0);
+    const size_t rows = static_cast<size_t>(grid.rows);
+    const size_t cols = static_cast<size_t>(grid.cols);
+    assert(r < rows && c < cols);
+    return grid.cells[r * cols + c];
 }
 
 // Allocate and size the DepthGrid message.
