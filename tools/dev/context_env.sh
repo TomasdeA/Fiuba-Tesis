@@ -146,8 +146,9 @@ tesis-run() {
   echo "[tesis-run] Entrando al contenedor tesis_nav_dev..."
   docker exec -it tesis_nav_dev bash -l
 }
-
-nav-start()        { ros2 launch nav_bringup nav.launch.py; }
+nav-start() { 
+    source "$WS_ROOT/install/setup.bash";
+    ros2 launch nav_bringup nav.launch.py; }
 nav-start-hw()     { ros2 launch nav_bringup nav.launch.py use_hw:=true; }
 nav-start-viz()    { ros2 launch nav_bringup nav.launch.py use_viz:=true; }
 nav-start-hw-viz() { ros2 launch nav_bringup nav.launch.py use_hw:=true use_viz:=true; }
