@@ -13,53 +13,53 @@ public:
     DepthToMatrix() : rclcpp::Node("depth_to_matrix_node")
     {
         depth_topic_ = this->declare_parameter<std::string>(
-            "depth_topic", "/camera/camera/depth/image_rect_raw");
-        
+            "depth_topic", "/sensors/depth/image");
+
         grid_cfg_.rows  = static_cast<int>(this->declare_parameter<int>("rows", 5));
         grid_cfg_.cols  = static_cast<int>(this->declare_parameter<int>("cols", 10));
-        // if rows = 1 and cols = 2, the output matrix will just indicate a left or right obstacle
+        // Si filas = 1 y columnas = 2, la matriz de salida solo indicará un obstáculo a izquierda o derecha
         grid_cfg_.z_min_m = static_cast<float>(this->declare_parameter<double>("z_min_m", 0.25));
         grid_cfg_.z_max_m = static_cast<float>(this->declare_parameter<double>("z_max_m", 4.0));
 
 
-        // Subscriber of depth image (milimeters)
+        // Suscriptor de imagen de profundidad (milímetros)
         img_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
             depth_topic_, rclcpp::SensorDataQoS(),
             std::bind(&DepthToMatrix::onDepthImage, this, _1));
-        
-        // Publisher of min depth grid (meters)
+
+        // Publicador de grilla de profundidad mínima (metros)
         grid_pub_ = this->create_publisher<custom_interfaces::msg::DepthGrid>(
-            "/depth_grid", 10);
+            "/perception/depth_grid", 10);
 
         heartbeat_ = this->create_wall_timer(
             1000ms, [this](){
                 RCLCPP_INFO(this->get_logger(),
-                "alive | subcribed to %s | images received: %zu",
+                "activo | suscrito a %s | imágenes recibidas: %zu",
                 depth_topic_.c_str(), image_count_);
             }
         );
-        
-        RCLCPP_INFO(get_logger(), 
-            "DepthToMatrix started. Waiting for images on %s",
+
+        RCLCPP_INFO(get_logger(),
+            "DepthToMatrix iniciado. Esperando imágenes desde %s (normalizado por sensor_topic_remapper)",
             depth_topic_.c_str());
     }
 
 private:
     void onDepthImage(sensor_msgs::msg::Image::SharedPtr msg){
         image_count_++;
-        
-        custom_interfaces::msg::DepthGrid grid; // Output
+
+        custom_interfaces::msg::DepthGrid grid; // Salida
 
         const bool ok = tesis_nav::compute_depth_stats(*msg, grid_cfg_, grid);
         if (!ok) {
             RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
-                                 "Depth grid computation failed (encoding=%s)", msg->encoding.c_str());
+                                 "Fallo en cálculo de grilla de profundidad (encoding=%s)", msg->encoding.c_str());
             return;
         }
 
         grid_pub_->publish(grid);
 
-        // Run with --ros-args --log-level depth_to_matrix_node:=debug
+        // Ejecutar con --ros-args --log-level depth_to_matrix_node:=debug
         RCLCPP_DEBUG_THROTTLE(
             this->get_logger(), *this->get_clock(), 1000,
             "img %ux%u enc=%s stamp=%u.%u",
@@ -69,20 +69,15 @@ private:
 
     }
 
-    // Parameters
     std::string depth_topic_;
     tesis_nav::GridConfig grid_cfg_;
 
-    // Image counter
     size_t image_count_ = 0;
 
-    // Subscriptors
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr img_sub_;
 
-    // Publisher
     rclcpp::Publisher<custom_interfaces::msg::DepthGrid>::SharedPtr grid_pub_;
 
-    // Timer
     rclcpp::TimerBase::SharedPtr heartbeat_;
 };
 
