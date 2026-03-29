@@ -27,18 +27,20 @@ __ctx_apply_ps1() {
   [[ $- == *i* ]] || return 0
   [ -z "${CTX_KEEP_PS1:-}" ] || return 0
 
-  local tag
+  local tag git_part
   if [ "$SHELL_CONTEXT" = "container" ]; then
     tag="\[\e[1;33m\][docker]\[\e[0m\] "
   else
     tag="\[\e[1;36m\][local]\[\e[0m\] "
   fi
 
-  # Evitar duplicar
-  case "$PS1" in
-    *"[docker]"*|*"[local]"*) : ;;
-    *) PS1="${tag}${PS1}" ;;
-  esac
+  if declare -F __git_ps1 >/dev/null 2>&1; then
+    git_part='\[\e[1;32m\]$(__git_ps1 " (%s)")\[\e[0m\]'
+  else
+    git_part=""
+  fi
+
+  PS1="${tag}\u@\h:\w${git_part}\$ "
 }
 
 __ctx_prompt_hook() {
@@ -118,7 +120,7 @@ fi
 rs-start() {
   _require_container || return 1
   ros2 launch realsense2_camera rs_launch.py \
-    enable_gyro:=false enable_accel:=false
+    enable_gyro:=true enable_accel:=true
 }
 
 # 2) Solo en el host: correr tesis
@@ -146,7 +148,44 @@ tesis-run() {
   echo "[tesis-run] Entrando al contenedor tesis_nav_dev..."
   docker exec -it tesis_nav_dev bash -l
 }
-nav-start() { 
+
+# 3) Solo en el host: entrar al contenedor ya levantado
+tesis-terminal() {
+  _require_host || return 1
+  docker exec -it tesis_nav_dev bash -l
+}
+
+# 4) Solo en el host: tmux 2x2, cada pane entra al contenedor
+tesis-tmux4() {
+  _require_host || return 1
+
+  local name="${1:-tesis-quad}"
+  local container="${2:-tesis_nav_dev}"
+
+  # Asegurarse de que el contenedor esté running
+  if ! docker inspect -f '{{.State.Running}}' "$container" >/dev/null 2>&1; then
+    echo "[tesis-tmux4] No encuentro el contenedor '$container' (¿corriste tesis-run?)." >&2
+    return 1
+  fi
+
+  # Si ya existe la sesión, attach
+  if tmux has-session -t "$name" 2>/dev/null; then
+    tmux attach -t "$name"
+    return 0
+  fi
+
+  # Comando que va en cada pane (shell dentro del docker)
+  local cmd="docker exec -it $container bash -l"
+
+  tmux new-session -d -s "$name" "$cmd"
+  tmux split-window -h -t "$name":0.0 "$cmd"
+  tmux split-window -v -t "$name":0.0 "$cmd"
+  tmux split-window -v -t "$name":0.1 "$cmd"
+  tmux select-layout -t "$name" tiled
+  tmux attach -t "$name"
+}
+
+nav-start() {
     source "$WS_ROOT/install/setup.bash";
     ros2 launch nav_bringup nav.launch.py; }
 nav-start-hw()     { ros2 launch nav_bringup nav.launch.py use_hw:=true; }
