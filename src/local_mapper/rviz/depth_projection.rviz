@@ -1,0 +1,77 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /DepthCloud1
+        - /DepthCloud1/Topic1
+        - /DepthCloud1/Autocompute Value Bounds1
+      Splitter Ratio: 0.5
+  - Class: rviz_common/Views
+    Name: Views
+
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/PointCloud2
+      Name: DepthCloud
+      Enabled: true
+      Topic:
+        Value: /local_mapper/debug/depth_cloud
+        Depth: 5
+        Reliability Policy: Best Effort
+      Style: Points
+      Size (Pixels): 2
+      Color Transformer: AxisColor
+      Axis: Z
+      Autocompute Value Bounds: true
+      Alpha: 1.0
+      Decay Time: 0
+
+    - Class: rviz_default_plugins/Axes
+      Name: CameraFrame
+      Enabled: true
+      Reference Frame: camera_depth_optical_frame
+      Length: 0.3
+      Radius: 0.02
+
+    - Class: rviz_default_plugins/Image
+      Name: ColorImage
+      Enabled: true
+      Topic:
+        Value: /camera/camera/color/image_raw
+        Depth: 5
+        Reliability Policy: Best Effort
+      Max Value: 1.0
+      Min Value: 0.0
+      Normalize Range: true
+
+  Global Options:
+    Background Color: 48; 48; 48
+    Fixed Frame: camera_depth_optical_frame
+    Frame Rate: 30
+
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Name: Orbit
+      Distance: 4.0
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 1.5
+      Yaw: 3.14
+      Pitch: 0.5
+      Focal Shape Size: 0.05
+      Near Clip Distance: 0.01
+
+Window Geometry:
+  Width: 1200
+  Height: 800
+  Displays:
+    collapsed: false
+  Views:
+    collapsed: true

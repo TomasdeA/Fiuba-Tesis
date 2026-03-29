@@ -1,0 +1,11 @@
+local_mapper:
+  ros__parameters:
+    # Topics reales de la cámara de profundidad (dependen del hardware).
+    # El launch file remapea estos a los nombres genéricos que usa el nodo
+    # (depth/image, depth/camera_info).
+    depth_image_topic: "/camera/camera/depth/image_rect_raw"
+    camera_info_topic: "/camera/camera/depth/camera_info"
+
+    # Rango de profundidad válido (metros)
+    range_min_m: 0.25
+    range_max_m: 5.0
