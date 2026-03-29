@@ -40,7 +40,7 @@ public:
         );
 
         RCLCPP_INFO(get_logger(),
-            "DepthToMatrix iniciado. Esperando imágenes desde %s (normalizado por sensor_topic_remapper)",
+            "DepthToMatrix iniciado. Esperando imágenes desde %s",
             depth_topic_.c_str());
     }
 
