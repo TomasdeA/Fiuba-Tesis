@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// DepthProjectionNode  (V1)
+// DepthProjectionNode
 //
 // Nodo mínimo que demuestra la retroproyección pinhole.
 // Suscribe:  imagen de profundidad 16-bit + CameraInfo
@@ -80,6 +80,8 @@ class DepthProjectionNode : public rclcpp::Node {
     std::vector<local_mapper::DepthProjector::Point3D> valid;
     valid.reserve(points.size() / 4);  // reserva conservadora
     for (const auto& pt : points) {
+      // Nan depth discarded
+      if (std::isnan(pt.z)) continue;
       if (pt.z <= range_min_m_ || pt.z >= range_max_m_) continue;
       valid.push_back(pt);
     }
@@ -88,7 +90,7 @@ class DepthProjectionNode : public rclcpp::Node {
 
     ++frame_count_;
     if (frame_count_ % 30 == 0) {
-      RCLCPP_INFO(get_logger(),
+      RCLCPP_DEBUG(get_logger(),
           "frame=%zu  puntos_válidos=%zu / %zu  (%.1f%%)",
           frame_count_, valid.size(), points.size(),
           100.0f * valid.size() / points.size());

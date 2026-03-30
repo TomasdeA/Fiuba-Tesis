@@ -1,4 +1,5 @@
 #include "local_mapper/depth_projector.hpp"
+#include <limits>
 
 namespace local_mapper {
 
@@ -28,7 +29,8 @@ std::vector<DepthProjector::Point3D> DepthProjector::projectDepthImage(
     for (int u = 0; u < width; ++u) {
       uint16_t depth_mm = depth_data[v * width + u];
       if (depth_mm == 0 || depth_mm == 65535) {
-        points.push_back({0.0f, 0.0f, 0.0f});
+        constexpr float nan = std::numeric_limits<float>::quiet_NaN();
+        points.push_back({nan, nan, nan});
         continue;
       }
       points.push_back(projectPixel(u, v, depth_mm, depth_scale));

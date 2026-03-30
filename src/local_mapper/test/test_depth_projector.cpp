@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "local_mapper/depth_projector.hpp"
 #include <sensor_msgs/msg/camera_info.hpp>
+#include <cmath>
 
 /// Helper: crea un CameraInfo con intrínsecos típicos (fx=fy=600, cx=320, cy=240).
 static sensor_msgs::msg::CameraInfo makeCameraInfo() {
@@ -45,5 +46,5 @@ TEST(DepthProjector, ProjectImageHandlesInvalidPixels) {
   EXPECT_EQ(points.size(), 12u);
   EXPECT_NEAR(points[0].z, 1.0f, 0.01f);
   EXPECT_NEAR(points[2].z, 2.0f, 0.01f);
-  EXPECT_EQ(points[3].z, 0.0f);  // píxel inválido (depth=0)
+  EXPECT_TRUE(std::isnan(points[3].z));  // píxel inválido (depth=0) -> NaN
 }
