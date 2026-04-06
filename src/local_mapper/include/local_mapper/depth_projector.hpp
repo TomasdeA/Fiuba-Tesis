@@ -43,7 +43,7 @@ class DepthProjector {
    * @return Vector de puntos 3D. Píxeles inválidos (0 o 65535) se marcan
    *         como (0, 0, 0).
    */
-  [[nodiscard]] std::vector<Point3D> projectDepthImage(
+   std::vector<Point3D> projectDepthImage(
       const uint16_t* depth_data,
       int width,
       int height,
@@ -57,16 +57,16 @@ class DepthProjector {
    * @param depth_scale Factor de conversión (default: 1e-3)
    * @return Punto 3D en coordenadas de cámara
    */
-  [[nodiscard]] Point3D projectPixel(
+   Point3D projectPixel(
       int u, int v,
       uint16_t depth_mm,
       float depth_scale = 1e-3f) const;
 
   // Getters de los intrínsecos
-  [[nodiscard]] float fx() const { return fx_; }
-  [[nodiscard]] float fy() const { return fy_; }
-  [[nodiscard]] float cx() const { return cx_; }
-  [[nodiscard]] float cy() const { return cy_; }
+   float fx() const { return fx_; }
+   float fy() const { return fy_; }
+   float cx() const { return cx_; }
+   float cy() const { return cy_; }
 
  private:
   float fx_, fy_, cx_, cy_;
