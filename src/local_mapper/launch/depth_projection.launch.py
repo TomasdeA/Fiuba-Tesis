@@ -26,6 +26,8 @@ def generate_launch_description():
                               '/camera/camera/depth/image_rect_raw')
     hw_info = ros_params.get('camera_info_topic',
                              '/camera/camera/depth/camera_info')
+    hw_imu = ros_params.get('imu_topic',
+                            '/camera/camera/imu')
 
     depth_projection_node = Node(
         package='local_mapper',
@@ -35,6 +37,7 @@ def generate_launch_description():
         remappings=[
             ('depth/image', hw_depth),
             ('depth/camera_info', hw_info),
+            ('imu', hw_imu),
         ],
         output='screen',
     )

@@ -12,11 +12,15 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(tf2_ros REQUIRED)
 
 # ── Librería interna ───────────────────────────────────────────────────────────
 # Se expone como librería para facilitar testing sin dependencia de ROS runtime.
 add_library(local_mapper_lib STATIC
   src/depth_projector.cpp
+  src/gravity_aligner.cpp
+  src/imu_filter.cpp
 )
 
 target_include_directories(local_mapper_lib PUBLIC
@@ -25,6 +29,7 @@ target_include_directories(local_mapper_lib PUBLIC
 )
 
 ament_target_dependencies(local_mapper_lib
+  rclcpp
   sensor_msgs
 )
 
@@ -33,7 +38,7 @@ add_executable(depth_projection_node
   src/depth_projection_node.cpp
 )
 target_link_libraries(depth_projection_node local_mapper_lib)
-ament_target_dependencies(depth_projection_node rclcpp sensor_msgs)
+ament_target_dependencies(depth_projection_node rclcpp sensor_msgs geometry_msgs tf2_ros)
 
 # ── Instalación ────────────────────────────────────────────────────────────────
 install(TARGETS depth_projection_node
@@ -56,6 +61,9 @@ if(BUILD_TESTING)
   ament_add_gtest(test_depth_projector test/test_depth_projector.cpp)
   target_link_libraries(test_depth_projector local_mapper_lib)
   ament_target_dependencies(test_depth_projector sensor_msgs)
+
+  ament_add_gtest(test_gravity_aligner test/test_gravity_aligner.cpp)
+  target_link_libraries(test_gravity_aligner local_mapper_lib)
 endif()
 
 # Scripts de test visual
