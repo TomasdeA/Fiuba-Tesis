@@ -64,11 +64,11 @@ class ImuFilter {
   rclcpp::Clock::SharedPtr clock_;
 
   // Estado del filtro IIR del acelerómetro
-  // Inicializado en (0, g, 0): cámara horizontal, sin corrección requerida.
+  // Inicializado en (0, -g, 0): cámara horizontal, sin corrección requerida.
   // Los outliers se descartan sin modificar este estado; el IIR converge
   // hacia el valor real a partir de la primera muestra válida.
   float ax_filt_ = 0.0f;
-  float ay_filt_ = 9.81f;
+  float ay_filt_ = -9.81f;
   float az_filt_ = 0.0f;
   bool  accel_dynamic_ = false;
 

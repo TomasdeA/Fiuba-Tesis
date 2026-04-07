@@ -7,8 +7,9 @@
 //
 // Convención del frame camera_depth_optical_frame:
 //   X = derecha, Y = abajo, Z = adelante
-// Cuando la cámara está horizontal, el acelerómetro mide (0, +g, 0).
-// La rotación calculada debe ser identidad en ese caso.
+// Cuando la cámara está horizontal, el acelerómetro mide (0, -g, 0).
+// El vector "abajo" canónico es b = (0, -1, 0).
+// La rotación calculada debe ser identidad cuando a = (0, -g, 0).
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST(GravityAligner, QuaternionIdentityNoRotation) {
@@ -20,9 +21,9 @@ TEST(GravityAligner, QuaternionIdentityNoRotation) {
 }
 
 TEST(GravityAligner, EstimateOrientationFlat_IsIdentity) {
-  // Cámara perfectamente horizontal → accel = (0, +g, 0) → rotación identidad
+  // Cámara perfectamente horizontal → accel = (0, -g, 0) → rotación identidad
   local_mapper::GravityAligner aligner;
-  const auto q = aligner.estimateOrientation(0.0f, 9.81f, 0.0f);
+  const auto q = aligner.estimateOrientation(0.0f, -9.81f, 0.0f);
   EXPECT_NEAR(q.w, 1.0f, 0.05f);
   EXPECT_NEAR(q.x, 0.0f, 0.05f);
   EXPECT_NEAR(q.y, 0.0f, 0.05f);
@@ -32,7 +33,7 @@ TEST(GravityAligner, EstimateOrientationFlat_IsIdentity) {
 TEST(GravityAligner, AlignToGravity_FlatPreservesCoords) {
   // Con la cámara horizontal la alineación no debe modificar los puntos
   local_mapper::GravityAligner aligner;
-  const auto pt = aligner.alignToGravity(1.0f, 2.0f, 3.0f, 0.0f, 9.81f, 0.0f);
+  const auto pt = aligner.alignToGravity(1.0f, 2.0f, 3.0f, 0.0f, -9.81f, 0.0f);
   EXPECT_NEAR(pt[0], 1.0f, 0.05f);
   EXPECT_NEAR(pt[1], 2.0f, 0.05f);
   EXPECT_NEAR(pt[2], 3.0f, 0.05f);
@@ -62,8 +63,8 @@ TEST(GravityAligner, EstimateOrientation_ZeroAccelReturnsIdentity) {
 TEST(GravityAligner, QuaternionNormIsPreserved) {
   // La rotación no debe cambiar la norma del vector
   local_mapper::GravityAligner aligner;
-  // Inclinación de 30°: ax = sin(30°)·g ≈ 4.9, ay = cos(30°)·g ≈ 8.5
-  const auto pt = aligner.alignToGravity(1.0f, 0.0f, 0.0f, 4.905f, 8.495f, 0.0f);
+  // Inclinación de 30° (roll): ax = sin(30°)·g ≈ 4.9, ay = -cos(30°)·g ≈ -8.5
+  const auto pt = aligner.alignToGravity(1.0f, 0.0f, 0.0f, 4.905f, -8.495f, 0.0f);
   const float norm = std::sqrt(pt[0]*pt[0] + pt[1]*pt[1] + pt[2]*pt[2]);
   EXPECT_NEAR(norm, 1.0f, 1e-3f);
 }
