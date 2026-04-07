@@ -172,10 +172,10 @@ def generate_launch_description():
         parameters=[local_mapper_cfg, {'vio_method': vio_method}],
         output='screen',
         remappings=[
-            ('/sensors/depth/image',       '/camera/camera/depth/image_rect_raw'),
-            ('/sensors/depth/camera_info', '/camera/camera/depth/camera_info'),
-            ('/sensors/imu/accel',         '/camera/camera/accel/sample'),
-            ('/sensors/imu/gyro',          '/camera/camera/gyro/sample'),
+            ('depth/image',       '/camera/camera/depth/image_rect_raw'),
+            ('depth/camera_info', '/camera/camera/depth/camera_info'),
+            ('imu/accel',         '/camera/camera/accel/sample'),
+            ('imu/gyro',          '/camera/camera/gyro/sample'),
         ],
     )
 
@@ -189,7 +189,7 @@ def generate_launch_description():
         ],
         output='screen',
         remappings=[
-            ('/sensors/depth/image', '/camera/camera/depth/image_rect_raw'),
+            ('depth/image', '/camera/camera/depth/image_rect_raw'),
         ],
     )
 
