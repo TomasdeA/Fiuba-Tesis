@@ -21,6 +21,7 @@ add_library(local_mapper_lib STATIC
   src/depth_projector.cpp
   src/gravity_aligner.cpp
   src/imu_filter.cpp
+  src/ground_estimator.cpp
 )
 
 target_include_directories(local_mapper_lib PUBLIC
@@ -64,6 +65,9 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_gravity_aligner test/test_gravity_aligner.cpp)
   target_link_libraries(test_gravity_aligner local_mapper_lib)
+
+  ament_add_gtest(test_ground_estimator test/test_ground_estimator.cpp)
+  target_link_libraries(test_ground_estimator local_mapper_lib)
 endif()
 
 # Scripts de test visual

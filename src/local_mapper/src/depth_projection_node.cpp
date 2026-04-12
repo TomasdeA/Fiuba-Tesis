@@ -1,15 +1,21 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// DepthProjectionNode - V2
+// DepthProjectionNode - V3
 //
-// Agrega alineación gravitacional a la nube de puntos.
+
 // Suscribe:  imagen de profundidad 16-bit + CameraInfo + sensor_msgs/Imu
 // Publica:
-//   /local_mapper/debug/depth_cloud    — nube cruda (frame óptico)
-//   /local_mapper/debug/aligned_cloud  — nube alineada a gravedad
+//   /local_mapper/debug/depth_cloud    — nube cruda (camera_depth_optical_frame, alineada vía TF)
+//   /local_mapper/debug/raw_cloud      — nube cruda sin rotar (gravity_aligned_frame, oscila al inclinar)
+//   /local_mapper/debug/ground_cloud   — suelo detectado (gravity_aligned_frame)
+//   /local_mapper/debug/obstacle_cloud — obstáculos sobre el suelo (gravity_aligned_frame)
+//   /local_mapper/debug/ceiling_cloud  — techo descartado (gravity_aligned_frame)
 //
-// La alineación usa el acelerómetro del IMU integrado en la D435i.
-// El ImuFilter aplica low-pass IIR + rechazo de outliers antes de
-// pasarlo al GravityAligner, que calcula el cuaternión de corrección.
+// depth_cloud y raw_cloud tienen los mismos puntos: depth_cloud se ve estático
+// en RViz porque la TF dinámica lo alinea; raw_cloud se ve oscilar al inclinar
+// la cámara, útil para verificar visualmente que el alineamiento funciona.
+//
+// GroundEstimator: pipeline de 8 etapas, detecta
+// el plano del suelo por RANSAC jerárquico sobre la nube de puntos alineada.
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <rclcpp/rclcpp.hpp>
@@ -24,6 +30,7 @@
 #include "local_mapper/depth_projector.hpp"
 #include "local_mapper/gravity_aligner.hpp"
 #include "local_mapper/imu_filter.hpp"
+#include "local_mapper/ground_estimator.hpp"
 
 using std::placeholders::_1;
 
@@ -35,6 +42,18 @@ class DepthProjectionNode : public rclcpp::Node {
         declare_parameter<double>("range_min_m", 0.1));
     range_max_m_ = static_cast<float>(
         declare_parameter<double>("range_max_m", 5.0));
+
+    local_mapper::GroundEstimator::Config ge_cfg;
+    ge_cfg.voxel_size_m   = static_cast<float>(
+        declare_parameter<double>("voxel_size_m", 0.05));
+    ge_cfg.ransac_max_iter = declare_parameter<int>("ransac_max_iter", 100);
+    ge_cfg.ransac_inlier_tol = static_cast<float>(
+        declare_parameter<double>("ground_inlier_tol", 0.0));
+    ge_cfg.min_person_height_m = static_cast<float>(
+        declare_parameter<double>("min_person_height_m", 1.3));
+    ge_cfg.ceiling_delta_m = static_cast<float>(
+        declare_parameter<double>("ceiling_delta_m", 0.1));
+    ground_estimator_ = std::make_unique<local_mapper::GroundEstimator>(ge_cfg);
 
     // ── ImuFilter ────────────────────────────────────────────────────────────
     local_mapper::ImuFilter::Config imu_cfg;
@@ -50,8 +69,17 @@ class DepthProjectionNode : public rclcpp::Node {
     cloud_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
         "/local_mapper/debug/depth_cloud", 10);
 
-    aligned_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
-        "/local_mapper/debug/aligned_cloud", 10);
+    raw_cloud_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
+        "/local_mapper/debug/raw_cloud", 10);
+
+    ground_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
+        "/local_mapper/debug/ground_cloud", 10);
+
+    obstacle_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
+        "/local_mapper/debug/obstacle_cloud", 10);
+
+    ceiling_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
+        "/local_mapper/debug/ceiling_cloud", 10);
 
     // ── Suscriptores ─────────────────────────────────────────────────────────
     // El nodo usa nombres genéricos; el launch file remapea al hardware.
@@ -100,17 +128,17 @@ class DepthProjectionNode : public rclcpp::Node {
     // q lleva puntos de cámara → alineado (corrige la inclinación).
     // En la convención TF de ROS, q_tf transforma puntos del child al parent,
     // por lo tanto q_tf = q (directo).
-    const auto q = aligner_.estimateOrientation(
+    q_ = aligner_.estimateOrientation(
         imu_filter_->ax(), imu_filter_->ay(), imu_filter_->az());
 
     geometry_msgs::msg::TransformStamped tf_dyn;
     tf_dyn.header.stamp    = msg->header.stamp;
     tf_dyn.header.frame_id = "gravity_aligned_frame";
     tf_dyn.child_frame_id  = "camera_depth_optical_frame";
-    tf_dyn.transform.rotation.w = q.w;
-    tf_dyn.transform.rotation.x = q.x;
-    tf_dyn.transform.rotation.y = q.y;
-    tf_dyn.transform.rotation.z = q.z;
+    tf_dyn.transform.rotation.w = q_.w;
+    tf_dyn.transform.rotation.x = q_.x;
+    tf_dyn.transform.rotation.y = q_.y;
+    tf_dyn.transform.rotation.z = q_.z;
     tf_br_->sendTransform(tf_dyn);
   }
 
@@ -125,7 +153,10 @@ class DepthProjectionNode : public rclcpp::Node {
 
     // Si nadie escucha, no gastar CPU
     if (cloud_pub_->get_subscription_count() == 0 &&
-        aligned_pub_->get_subscription_count() == 0) return;
+        raw_cloud_pub_->get_subscription_count() == 0 &&
+        ground_pub_->get_subscription_count() == 0 &&
+        obstacle_pub_->get_subscription_count() == 0 &&
+        ceiling_pub_->get_subscription_count() == 0) return;
 
     // Retroproyectar
     const auto* depth_data = reinterpret_cast<const uint16_t*>(msg->data.data());
@@ -141,16 +172,88 @@ class DepthProjectionNode : public rclcpp::Node {
       valid.push_back(pt);
     }
 
-    // Publicar nube cruda
+    // Publicar nube cruda en camera_depth_optical_frame.
+    // En RViz (Fixed Frame = gravity_aligned_frame) la TF dinámica
+    // publicada en onImu() alinea esta nube automáticamente.
     if (cloud_pub_->get_subscription_count() > 0) {
       publishCloud(cloud_pub_, msg->header, valid);
     }
 
-    // Publicar nube alineada a gravedad
-    if (aligned_pub_->get_subscription_count() > 0) {
-      publishAlignedCloud(msg->header, valid);
+    // Publicar nube sin rotar en gravity_aligned_frame (debug).
+    // Al no aplicarse ninguna TF, oscila visualmente al inclinar la cámara.
+    if (raw_cloud_pub_->get_subscription_count() > 0) {
+      std_msgs::msg::Header raw_hdr;
+      raw_hdr.stamp    = msg->header.stamp;
+      raw_hdr.frame_id = "gravity_aligned_frame";
+      publishCloud(raw_cloud_pub_, raw_hdr, valid);
     }
-  }
+
+    // Estimación del suelo
+    if (ground_pub_->get_subscription_count() > 0 ||
+        obstacle_pub_->get_subscription_count() > 0 ||
+        ceiling_pub_->get_subscription_count() > 0)
+    {
+      // Convertir a GroundEstimator::Point3D rotando con q_ cacheado de onImu.
+      // Los umbrales de altura (min_person_height_m, ceiling_delta_m) requieren
+      // coordenadas en gravity_aligned_frame — por eso se rota explícitamente.
+      std::vector<local_mapper::GroundEstimator::Point3D> ge_cloud;
+      ge_cloud.reserve(valid.size());
+      for (const auto& pt : valid) {
+        const auto r = q_.rotatePoint(pt.x, pt.y, pt.z);
+        ge_cloud.push_back({r[0], r[1], r[2]});
+      }
+
+      const bool ground_ok = ground_estimator_->estimate(ge_cloud);
+
+      std_msgs::msg::Header aligned_hdr;
+      aligned_hdr.stamp    = msg->header.stamp;
+      aligned_hdr.frame_id = "gravity_aligned_frame";
+
+      if (ground_pub_->get_subscription_count() > 0) {
+        publishIndexedCloud(ground_pub_, aligned_hdr, ge_cloud,
+                            ground_estimator_->groundIndices());
+      }
+      if (obstacle_pub_->get_subscription_count() > 0) {
+        publishIndexedCloud(obstacle_pub_, aligned_hdr, ge_cloud,
+                            ground_estimator_->obstacleIndices());
+      }
+
+      // Publicar puntos de techo (CEILING) — para debug/visualización
+      if (ceiling_pub_->get_subscription_count() > 0) {
+        std::vector<int> ceiling_idx;
+        const auto& labels = ground_estimator_->labels();
+        for (int i = 0; i < static_cast<int>(labels.size()); ++i)
+          if (labels[i] == local_mapper::GroundEstimator::Label::CEILING)
+            ceiling_idx.push_back(i);
+        publishIndexedCloud(ceiling_pub_, aligned_hdr, ge_cloud, ceiling_idx);
+      }
+
+      // Log periódico de diagnostico
+      if (ground_ok) {
+        RCLCPP_DEBUG(get_logger(),
+            "Suelo: calidad=%.2f  h=%.3fm  t_total=%.1fms  "
+            "voxel=%d/%d  inliers=%d",
+            ground_estimator_->groundPlane().quality,
+            ground_estimator_->cameraHeightM(),
+            ground_estimator_->perfStats().time_total_ms,
+            ground_estimator_->perfStats().n_voxel,
+            ground_estimator_->perfStats().n_input,
+            ground_estimator_->perfStats().n_inliers);
+      } else {
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+            "Suelo no detectado. voxel=%d/%d  obstacle=%zu  ceiling=%zu",
+            ground_estimator_->perfStats().n_voxel,
+            ground_estimator_->perfStats().n_input,
+            ground_estimator_->obstacleIndices().size(),
+            [&](){
+              size_t n = 0;
+              for (const auto& l : ground_estimator_->labels())
+                if (l == local_mapper::GroundEstimator::Label::CEILING) ++n;
+              return n;
+            }());
+      }
+    }
+  }  // onDepth
 
   // ── Helpers de publicación ────────────────────────────────────────────────
 
@@ -182,53 +285,43 @@ class DepthProjectionNode : public rclcpp::Node {
       const std_msgs::msg::Header& header,
       const std::vector<local_mapper::DepthProjector::Point3D>& pts)
   {
-    // Publicar puntos CRUDOS en gravity_aligned_frame (sin rotar).
-    // Al estar en el Fixed Frame, RViz no les aplica ninguna TF.
-    // Resultado: la nube se ve tal cual la mide la cámara → oscila al
-    // inclinar el dispositivo.
-    std_msgs::msg::Header raw_header;
-    raw_header.stamp    = header.stamp;
-    raw_header.frame_id = "gravity_aligned_frame";
-    auto pc = makeCloudMsg(raw_header, static_cast<uint32_t>(pts.size()));
+    auto pc = makeCloudMsg(header, static_cast<uint32_t>(pts.size()));
     auto* ptr = reinterpret_cast<float*>(pc.data.data());
     for (const auto& pt : pts) { *ptr++ = pt.x; *ptr++ = pt.y; *ptr++ = pt.z; }
     pub->publish(std::move(pc));
   }
 
-  void publishAlignedCloud(
+  void publishIndexedCloud(
+      const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr& pub,
       const std_msgs::msg::Header& header,
-      const std::vector<local_mapper::DepthProjector::Point3D>& pts)
+      const std::vector<local_mapper::GroundEstimator::Point3D>& cloud,
+      const std::vector<int>& indices)
   {
-    // La nube alineada se publica en camera_depth_optical_frame con los
-    // puntos crudos.  La TF gravity_aligned_frame → camera_depth_optical_frame
-    // (con q) publicada en onImu() hace que RViz (y tf2_buffer->transform())
-    // apliquen q al transformar estos puntos al frame alineado,
-    // corrigiéndolos automáticamente.
-    std_msgs::msg::Header aligned_header;
-    aligned_header.stamp    = header.stamp;
-    aligned_header.frame_id = "camera_depth_optical_frame";
-    auto pc = makeCloudMsg(aligned_header, static_cast<uint32_t>(pts.size()));
+    auto pc = makeCloudMsg(header, static_cast<uint32_t>(indices.size()));
     auto* ptr = reinterpret_cast<float*>(pc.data.data());
-
-    for (const auto& pt : pts) {
-      *ptr++ = pt.x; *ptr++ = pt.y; *ptr++ = pt.z;
+    for (int i : indices) {
+      *ptr++ = cloud[i].x; *ptr++ = cloud[i].y; *ptr++ = cloud[i].z;
     }
-
-    aligned_pub_->publish(std::move(pc));
+    pub->publish(std::move(pc));
   }
 
   // ── Miembros ─────────────────────────────────────────────────────────────
-  std::unique_ptr<local_mapper::DepthProjector> projector_;
-  std::unique_ptr<local_mapper::ImuFilter>      imu_filter_;
-  local_mapper::GravityAligner                  aligner_;
-  std::shared_ptr<tf2_ros::TransformBroadcaster> tf_br_;
+  std::unique_ptr<local_mapper::DepthProjector>    projector_;
+  std::unique_ptr<local_mapper::ImuFilter>         imu_filter_;
+  std::unique_ptr<local_mapper::GroundEstimator>   ground_estimator_;
+  local_mapper::GravityAligner                     aligner_;
+  local_mapper::GravityAligner::Quaternion         q_{1.0f, 0.0f, 0.0f, 0.0f};
+  std::shared_ptr<tf2_ros::TransformBroadcaster>   tf_br_;
 
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr      depth_sub_;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr info_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr        imu_sub_;
 
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_pub_;
-  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr aligned_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr raw_cloud_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr ground_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr obstacle_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr ceiling_pub_;
 
   float  range_min_m_ = 0.1f;
   float  range_max_m_ = 5.0f;

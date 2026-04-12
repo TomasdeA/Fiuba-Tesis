@@ -3,8 +3,9 @@ Panels:
     Name: Displays
     Property Tree Widget:
       Expanded:
-        - /CameraFrame1
-        - /GravityAlignedFrame1
+        - /GroundCloud1
+        - /ObstacleCloud1
+        - /CeilingCloud1
       Splitter Ratio: 0.5
   - Class: rviz_common/Views
     Name: Views
@@ -14,32 +15,20 @@ Visualization Manager:
   Displays:
 
     - Class: rviz_default_plugins/PointCloud2
-      Name: DepthCloud
-      Enabled: true
-      Topic:
-        Value: /local_mapper/debug/depth_cloud
-        Depth: 5
-        Reliability Policy: Best Effort
-      Style: Points
-      Size (Pixels): 3
-      Color Transformer: AxisColor
-      Axis: Z
-      Autocompute Value Bounds: true
-      Alpha: 0.5
-      Decay Time: 0
-
-    - Class: rviz_default_plugins/PointCloud2
-      Name: RawCloud
+      Name: AlignedCloud
       Enabled: false
       Topic:
-        Value: /local_mapper/debug/raw_cloud
+        Value: /local_mapper/debug/aligned_cloud
         Depth: 5
         Reliability Policy: Best Effort
       Style: Points
       Size (Pixels): 2
-      Color Transformer: AxisColor
-      Axis: Z
-      Autocompute Value Bounds: true
+      Color Transformer: FlatColor
+      Flat Color:
+        R: 0.7
+        G: 0.7
+        B: 0.7
+        A: 1.0
       Alpha: 0.4
       Decay Time: 0
 
@@ -54,9 +43,9 @@ Visualization Manager:
       Size (Pixels): 4
       Color Transformer: FlatColor
       Flat Color:
-        R: 0.0
-        G: 0.8
-        B: 0.2
+        R: 0.1
+        G: 0.85
+        B: 0.1
         A: 1.0
       Alpha: 1.0
       Decay Time: 0
@@ -73,10 +62,10 @@ Visualization Manager:
       Color Transformer: FlatColor
       Flat Color:
         R: 0.9
-        G: 0.1
+        G: 0.15
         B: 0.1
         A: 1.0
-      Alpha: 0.8
+      Alpha: 1.0
       Decay Time: 0
 
     - Class: rviz_default_plugins/PointCloud2
@@ -94,15 +83,15 @@ Visualization Manager:
         G: 0.6
         B: 1.0
         A: 1.0
-      Alpha: 0.6
+      Alpha: 0.8
       Decay Time: 0
 
     - Class: rviz_default_plugins/Axes
       Name: CameraFrame
       Enabled: true
       Reference Frame: camera_depth_optical_frame
-      Length: 0.5
-      Radius: 0.03
+      Length: 0.3
+      Radius: 0.02
 
     - Class: rviz_default_plugins/Axes
       Name: GravityAlignedFrame
@@ -127,19 +116,8 @@ Visualization Manager:
       Plane Cell Count: 10
       Alpha: 0.4
 
-    - Class: rviz_default_plugins/Image
-      Name: ColorImage
-      Enabled: true
-      Topic:
-        Value: /camera/camera/color/image_raw
-        Depth: 5
-        Reliability Policy: Best Effort
-      Max Value: 1.0
-      Min Value: 0.0
-      Normalize Range: true
-
   Global Options:
-    Background Color: 40; 40; 40
+    Background Color: 30; 30; 30
     Fixed Frame: gravity_aligned_frame
     Frame Rate: 30
 
