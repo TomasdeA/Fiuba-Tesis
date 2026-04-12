@@ -298,6 +298,10 @@ std::vector<GroundEstimator::Point3D> GroundEstimator::stage2_voxel_sample(
   std::unordered_map<Key, std::array<float, 4>, Hash> cells;
 
   for (const auto& p : cloud) {
+    // Puntos de techo (Y < -ceiling_delta_m) se descartarán en Stage 7;
+    // excluirlos aquí evita computar floor+hash para puntos que no aportan
+    // al plano del suelo ni a los obstáculos.
+    if (p.y < -cfg_.ceiling_delta_m) continue;
     Key k = {
       static_cast<int32_t>(std::floor(p.x * inv_vs)),
       static_cast<int32_t>(std::floor(p.y * inv_vs)),
