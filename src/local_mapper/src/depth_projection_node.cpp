@@ -230,7 +230,7 @@ class DepthProjectionNode : public rclcpp::Node {
 
       // Log periódico de diagnostico
       if (ground_ok) {
-        RCLCPP_DEBUG(get_logger(),
+        RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 10000,
             "Suelo: calidad=%.2f  h=%.3fm  t_total=%.1fms  "
             "voxel=%d/%d  inliers=%d",
             ground_estimator_->groundPlane().quality,

@@ -135,7 +135,7 @@ class GroundEstimator {
   /// Índices de los puntos clasificados como OBSTACLE
   const std::vector<int>& obstacleIndices() const { return obstacle_idx_; }
 
-  /// Altura de la cámara sobre el suelo en metros (positivo = cámara arriba)
+  /// Altura de la cámara sobre el suelo en metros
   float cameraHeightM() const;
 
   bool isValid() const { return ground_plane_.valid; }
@@ -171,7 +171,7 @@ class GroundEstimator {
   /// Distancia con signo de un punto al plano
   static float pointPlaneDist(const Point3D& p, const Plane& pl);
 
-  /// Ajuste de plano por SVD (mínimos cuadrados) sobre un conjunto de puntos
+  /// Ajuste de plano por mínimos cuadrados sobre un conjunto de puntos
   static Plane fitPlaneLS(const std::vector<const Point3D*>& pts);
 
   /// Tiempo en milisegundos desde una marca de inicio
