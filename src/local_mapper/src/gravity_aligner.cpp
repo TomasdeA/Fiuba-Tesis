@@ -19,9 +19,12 @@ std::array<float, 3> GravityAligner::Quaternion::rotatePoint(
   const float qpz =  qw*pz + qx*py - qy*px;
 
   // Producto (q*p) * q*  (q* = {w, -x, -y, -z})
-  const float rpx = -qpw*(-qx) + qpx*qw  - qpy*(-qz) + qpz*(-qy);
-  const float rpy = -qpw*(-qy) + qpy*qw  - qpz*(-qx) + qpx*(-qz);
-  const float rpz = -qpw*(-qz) + qpz*qw  - qpx*(-qy) + qpy*(-qx);
+  // v' = q * v * q*  →  result = (q*v) * q*
+  // Usando la fórmula de multiplicación de cuaterniones con q2 = (qw,-qx,-qy,-qz):
+  //   result.x = q1.w*(-qx) + q1.x*qw  + q1.y*(-qz) - q1.z*(-qy)
+  const float rpx = -qpw*qx + qpx*qw - qpy*qz + qpz*qy;
+  const float rpy = -qpw*qy + qpy*qw + qpx*qz - qpz*qx;
+  const float rpz = -qpw*qz + qpz*qw - qpx*qy + qpy*qx;
 
   return {rpx, rpy, rpz};
 }
