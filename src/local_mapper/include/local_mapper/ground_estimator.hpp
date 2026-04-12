@@ -66,6 +66,7 @@ class GroundEstimator {
   /// Métricas de performance (Stage 8)
   struct PerfStats {
     float time_total_ms;
+    float time_diag_ms;    ///< Stage 1: diagnóstico (búsqueda NN)
     float time_voxel_ms;
     float time_ransac_ms;
     float time_refine_ms;

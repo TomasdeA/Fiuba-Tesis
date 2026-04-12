@@ -134,7 +134,9 @@ bool GroundEstimator::estimate(const std::vector<Point3D>& cloud) {
   struct timespec t_total; clock_gettime(CLOCK_MONOTONIC, &t_total);
 
   // ── Etapa 1: Diagnóstico ──────────────────────────────────────────────────
+  struct timespec t_diag; clock_gettime(CLOCK_MONOTONIC, &t_diag);
   stats_ = stage1_diagnostics(cloud);
+  perf_.time_diag_ms = elapsedMs(t_diag);
 
   // ── Etapa 2: Voxel sampling ───────────────────────────────────────────────
   struct timespec t_vox; clock_gettime(CLOCK_MONOTONIC, &t_vox);

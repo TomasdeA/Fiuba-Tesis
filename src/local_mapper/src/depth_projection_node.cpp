@@ -98,6 +98,7 @@ class DepthProjectionNode : public rclcpp::Node {
     RCLCPP_INFO(get_logger(),
         "DepthProjectionNode listo. range=[%.2f, %.2f]m",
         range_min_m_, range_max_m_);
+    last_perf_log_ = get_clock()->now();
   }
 
  private:
@@ -228,29 +229,40 @@ class DepthProjectionNode : public rclcpp::Node {
         publishIndexedCloud(ceiling_pub_, aligned_hdr, ge_cloud, ceiling_idx);
       }
 
-      // Log periódico de diagnostico
-      if (ground_ok) {
-        RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 10000,
-            "Suelo: calidad=%.2f  h=%.3fm  t_total=%.1fms  "
-            "voxel=%d/%d  inliers=%d",
-            ground_estimator_->groundPlane().quality,
-            ground_estimator_->cameraHeightM(),
-            ground_estimator_->perfStats().time_total_ms,
-            ground_estimator_->perfStats().n_voxel,
-            ground_estimator_->perfStats().n_input,
-            ground_estimator_->perfStats().n_inliers);
-      } else {
+      // Acumular estadísticas de cada frame y emitir resumen cada 10 s
+      perf_accum_.accumulate(ground_estimator_->perfStats());
+
+      if (!ground_ok) {
         RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
-            "Suelo no detectado. voxel=%d/%d  obstacle=%zu  ceiling=%zu",
+            "Suelo no detectado. voxel=%d/%d",
             ground_estimator_->perfStats().n_voxel,
-            ground_estimator_->perfStats().n_input,
-            ground_estimator_->obstacleIndices().size(),
-            [&](){
-              size_t n = 0;
-              for (const auto& l : ground_estimator_->labels())
-                if (l == local_mapper::GroundEstimator::Label::CEILING) ++n;
-              return n;
-            }());
+            ground_estimator_->perfStats().n_input);
+      }
+
+      const auto now = get_clock()->now();
+      if ((now - last_perf_log_).seconds() >= 10.0) {
+        const auto& a = perf_accum_;
+        if (a.frames > 0) {
+          const double nf = static_cast<double>(a.frames);
+          RCLCPP_INFO(get_logger(),
+              "[PERF 10s] frames=%d\n"
+              "  Stage1 diagnóstico: avg=%.2fms  max=%.2fms\n"
+              "  Stage2 voxel:       avg=%.2fms  max=%.2fms\n"
+              "  Stage4 RANSAC:      avg=%.2fms  max=%.2fms\n"
+              "  Stage6 refine:      avg=%.2fms  max=%.2fms\n"
+              "  Total pipeline:     avg=%.2fms  max=%.2fms\n"
+              "  Puntos: avg_entrada=%.0f  avg_voxel=%.0f  ratio=%.1f%%",
+              a.frames,
+              a.sum_diag_ms/nf,   a.max_diag_ms,
+              a.sum_voxel_ms/nf,  a.max_voxel_ms,
+              a.sum_ransac_ms/nf, a.max_ransac_ms,
+              a.sum_refine_ms/nf, a.max_refine_ms,
+              a.sum_total_ms/nf,  a.max_total_ms,
+              a.sum_input/nf,     a.sum_voxel/nf,
+              100.0 * a.sum_voxel / (a.sum_input > 0.0 ? a.sum_input : 1.0));
+        }
+        perf_accum_.reset();
+        last_perf_log_ = now;
       }
     }
   }  // onDepth
@@ -305,6 +317,36 @@ class DepthProjectionNode : public rclcpp::Node {
     pub->publish(std::move(pc));
   }
 
+  // ── Acumulador de performance ─────────────────────────────────────────────
+  struct PerfAccum {
+    int    frames     = 0;
+    double sum_diag_ms   = 0, max_diag_ms   = 0;
+    double sum_voxel_ms  = 0, max_voxel_ms  = 0;
+    double sum_ransac_ms = 0, max_ransac_ms = 0;
+    double sum_refine_ms = 0, max_refine_ms = 0;
+    double sum_total_ms  = 0, max_total_ms  = 0;
+    double sum_input  = 0;
+    double sum_voxel  = 0;
+
+    void reset() { *this = PerfAccum{}; }
+
+    void accumulate(const local_mapper::GroundEstimator::PerfStats& p) {
+      ++frames;
+      sum_diag_ms   += p.time_diag_ms;
+      max_diag_ms    = p.time_diag_ms   > max_diag_ms   ? p.time_diag_ms   : max_diag_ms;
+      sum_voxel_ms  += p.time_voxel_ms;
+      max_voxel_ms   = p.time_voxel_ms  > max_voxel_ms  ? p.time_voxel_ms  : max_voxel_ms;
+      sum_ransac_ms += p.time_ransac_ms;
+      max_ransac_ms  = p.time_ransac_ms > max_ransac_ms ? p.time_ransac_ms : max_ransac_ms;
+      sum_refine_ms += p.time_refine_ms;
+      max_refine_ms  = p.time_refine_ms > max_refine_ms ? p.time_refine_ms : max_refine_ms;
+      sum_total_ms  += p.time_total_ms;
+      max_total_ms   = p.time_total_ms  > max_total_ms  ? p.time_total_ms  : max_total_ms;
+      sum_input     += p.n_input;
+      sum_voxel     += p.n_voxel;
+    }
+  };
+
   // ── Miembros ─────────────────────────────────────────────────────────────
   std::unique_ptr<local_mapper::DepthProjector>    projector_;
   std::unique_ptr<local_mapper::ImuFilter>         imu_filter_;
@@ -325,6 +367,8 @@ class DepthProjectionNode : public rclcpp::Node {
 
   float  range_min_m_ = 0.1f;
   float  range_max_m_ = 5.0f;
+  PerfAccum    perf_accum_;
+  rclcpp::Time last_perf_log_;
 };
 
 int main(int argc, char** argv) {
