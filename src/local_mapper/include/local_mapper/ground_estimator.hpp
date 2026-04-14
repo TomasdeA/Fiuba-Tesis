@@ -104,7 +104,7 @@ class GroundEstimator {
                                    ///< cabeza); Y negativo = por encima de la cámara.
 
     // Diagnóstico Stage 1
-    int   nn_sample_size  = 200;    ///< Puntos muestreados para calcular NN dist
+    int   nn_sample_size  = 100;    ///< Puntos muestreados para calcular NN dist
   };
 
   // ── Constructor ─────────────────────────────────────────────────────────────

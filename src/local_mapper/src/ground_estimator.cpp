@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <future>
 #include <numeric>
 #include <random>
 #include <stdexcept>
@@ -133,15 +134,27 @@ bool GroundEstimator::estimate(const std::vector<Point3D>& cloud) {
 
   struct timespec t_total; clock_gettime(CLOCK_MONOTONIC, &t_total);
 
-  // ── Etapa 1: Diagnóstico ──────────────────────────────────────────────────
-  struct timespec t_diag; clock_gettime(CLOCK_MONOTONIC, &t_diag);
-  stats_ = stage1_diagnostics(cloud);
-  perf_.time_diag_ms = elapsedMs(t_diag);
+  // ── Etapas 1 y 2 en paralelo ─────────────────────────────────────────────
+  // stage1_diagnostics y stage2_voxel_sample son const y solo leen 'cloud',
+  // sin estado mutable compartido — se lanzan en hilos independientes.
+  // Cada lambda mide su propio tiempo para no mezclar las métricas.
+  auto fut_diag = std::async(std::launch::async, [this, &cloud] {
+    struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t);
+    auto s = stage1_diagnostics(cloud);
+    return std::make_pair(s, elapsedMs(t));
+  });
+  auto fut_vox = std::async(std::launch::async, [this, &cloud] {
+    struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t);
+    auto v = stage2_voxel_sample(cloud);
+    return std::make_pair(std::move(v), elapsedMs(t));
+  });
 
-  // ── Etapa 2: Voxel sampling ───────────────────────────────────────────────
-  struct timespec t_vox; clock_gettime(CLOCK_MONOTONIC, &t_vox);
-  const auto voxel_cloud = stage2_voxel_sample(cloud);
-  perf_.time_voxel_ms = elapsedMs(t_vox);
+  auto [stats, t_diag] = fut_diag.get();
+  stats_ = stats;
+  perf_.time_diag_ms = t_diag;
+
+  auto [voxel_cloud, t_vox] = fut_vox.get();
+  perf_.time_voxel_ms = t_vox;
   perf_.n_voxel = static_cast<int>(voxel_cloud.size());
 
   // Tolerancia: se calcula antes de RANSAC para poder usarla en stage7
