@@ -85,13 +85,19 @@ class GroundEstimator {
     // Stage 3 / 4 — RANSAC
     int   ransac_max_iter    = 100;  ///< Iteraciones máximas de RANSAC
     float ransac_inlier_tol  = 0.0f; ///< 0 → se calcula automáticamente en Stage 3
-    float ransac_min_inliers = 0.3f; ///< Fracción mínima de inliers para aceptar
+    float ransac_min_inliers = 0.3f; ///< Fracción mínima de inliers sobre la banda
     float min_person_height_m = 1.3f; ///< Altura mínima esperada de cualquier usuario (m).
                                       ///<   La cámara se monta en la cabeza, por lo que
                                       ///<   h_cam ≈ altura_persona + delta_soporte.
                                       ///<   El suelo siempre está a Y >= min_person_height_m.
                                       ///<   Solo se usan como candidatos a suelo los puntos
                                       ///<   con Y >= este valor.
+
+    // Stage 4 — Histograma Y / tolerancia variable
+    float hist_bin_m       = 0.05f;  ///< Ancho de bin del histograma de Y (m)
+    float hist_band_low_m  = 0.10f;  ///< Margen superior al pico del histograma (m)
+    float hist_band_high_m = 0.20f;  ///< Margen inferior al pico del histograma (m)
+    float floor_noise_k    = 0.015f; ///< Factor k para ε_i = k·‖p_i‖ (modelo D435)
 
     // Stage 5 — Validación
     float max_tilt_deg    = 15.0f;  ///< Inclinación máxima aceptable del plano del suelo

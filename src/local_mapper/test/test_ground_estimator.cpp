@@ -44,9 +44,9 @@ static std::vector<P3> makeFlatCloud(int n, float y_val, float noise_m = 0.005f)
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST(GroundEstimator, DetectaPlanoHorizontal) {
-  // Suelo plano en y = +0.8 m. En frame alineado, Y positivo = abajo.
+  // Suelo plano en y = +1.5 m (cámara a ~1.5 m sobre el suelo en frame alineado).
   GE estimator;
-  const auto cloud = makeFlatCloud(800, 0.8f, 0.003f);
+  const auto cloud = makeFlatCloud(800, 1.5f, 0.003f);
   ASSERT_TRUE(estimator.estimate(cloud));
   EXPECT_TRUE(estimator.isValid());
 
@@ -126,7 +126,7 @@ TEST(GroundEstimator, NubePequenaNoFalla) {
 
 TEST(GroundEstimator, DiagnosticoCalculaEstadisticas) {
   GE estimator;
-  const auto cloud = makeFlatCloud(400, 0.8f, 0.005f);
+  const auto cloud = makeFlatCloud(400, 1.5f, 0.005f);
   estimator.estimate(cloud);
 
   const auto& stats = estimator.cloudStats();
@@ -137,7 +137,7 @@ TEST(GroundEstimator, DiagnosticoCalculaEstadisticas) {
 
 TEST(GroundEstimator, ClasificacionSueloYObstaculo) {
   GE estimator;
-  const auto cloud = makeFlatCloud(800, 0.8f, 0.003f);
+  const auto cloud = makeFlatCloud(800, 1.5f, 0.003f);
   const bool ok = estimator.estimate(cloud);
   if (!ok) GTEST_SKIP() << "Estimación no exitosa en esta configuración";
 
@@ -158,7 +158,7 @@ TEST(GroundEstimator, ClasificacionSueloYObstaculo) {
 TEST(GroundEstimator, PerformanceDentroDePresupuesto) {
   // El pipeline completo debe correr en < 100 ms para nube de 5000 puntos
   GE estimator;
-  const auto cloud = makeFlatCloud(5000, 0.8f, 0.005f);
+  const auto cloud = makeFlatCloud(5000, 1.5f, 0.005f);
   estimator.estimate(cloud);
 
   const float t = estimator.perfStats().time_total_ms;
@@ -167,15 +167,15 @@ TEST(GroundEstimator, PerformanceDentroDePresupuesto) {
 }
 
 TEST(GroundEstimator, AlturaDeCamera) {
-  // El origen de la cámara está en (0,0,0). El plano del suelo está en y = 0.8.
-  // La normal apunta hacia Y negativo (arriba), por lo que d ≈ +0.8.
+  // El origen de la cámara está en (0,0,0). El plano del suelo está en y = 1.5.
+  // La normal apunta hacia Y negativo (arriba), por lo que d ≈ +1.5.
   GE estimator;
-  const auto cloud = makeFlatCloud(800, 0.8f, 0.003f);
+  const auto cloud = makeFlatCloud(800, 1.5f, 0.003f);
   const bool ok = estimator.estimate(cloud);
   if (!ok) GTEST_SKIP();
 
-  // cameraHeightM() ≈ 0.8 m
+  // cameraHeightM() ≈ 1.5 m
   const float h = estimator.cameraHeightM();
-  EXPECT_NEAR(h, 0.8f, 0.1f)
+  EXPECT_NEAR(h, 1.5f, 0.1f)
       << "Altura estimada: " << h;
 }

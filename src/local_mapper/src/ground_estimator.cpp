@@ -351,10 +351,27 @@ float GroundEstimator::stage3_adaptive_tolerance(const CloudStats& stats) const 
 // Etapa 4: RANSAC jerárquico
 // ═════════════════════════════════════════════════════════════════════════════
 //
-// Estrategia "jerárquica": en las primeras iteraciones se muestrea solo el
-// tercio inferior de puntos en Y (candidatos a suelo), y si no se encuentra
-// un plano con suficiente calidad se amplía al conjunto completo.
-// Esto reduce el número de iteraciones necesarias en la práctica.
+// Filtro de candidatos por histograma de Y:
+//   Primero se seleccionan puntos con Y >= min_person_height_m (cota inferior
+//   del suelo en el frame alineado). Sobre esa franja se construye un
+//   histograma de Y con bins de hist_bin_m. El bin más poblado localiza el
+//   nivel dominante de la escena; la banda
+//   [y_pico - hist_band_low_m, y_pico + hist_band_high_m] es el pool de
+//   muestreo. Usar solo esa banda evita que paredes y obstáculos compitan
+//   con el suelo durante el muestreo.
+//
+// Métrica de calidad relativa a la banda:
+//   quality = inliers_banda / n_banda. Con el denominador n_total la calidad
+//   quedaría diluida cuando el suelo ocupa una fracción pequeña de la nube
+//   (cámara apuntando al frente). El umbral ransac_min_inliers se interpreta
+//   sobre la banda, no sobre la nube completa.
+//
+// Tolerancia variable ε_i = max(ε, k·‖p_i‖):
+//   El ruido axial del D435 crece con la distancia; la componente
+//   perpendicular al plano del suelo escala aproximadamente como k·‖p‖
+//   (k ≈ 0,015). La tolerancia global ε, calculada en Stage 3 a partir de
+//   la distribución NN de la nube, representa el nivel de ruido cercano;
+//   para puntos lejanos se usa k·‖p‖ cuando éste es mayor que ε.
 
 GroundEstimator::Plane GroundEstimator::stage4_ransac(
     const std::vector<Point3D>& cloud, float tol, int max_iter) const
@@ -362,15 +379,9 @@ GroundEstimator::Plane GroundEstimator::stage4_ransac(
   const int n = static_cast<int>(cloud.size());
   if (n < 3) return Plane{};
 
-  // Pre-selección: candidatos a suelo son los puntos con Y >= min_person_height_m.
-  // En el frame alineado a gravedad Y apunta hacia abajo (Y=0 en la cámara).
-  // La cámara se monta en la cabeza del usuario, por lo que h_cam ≈ altura de
-  // la persona + delta de soporte. El suelo está siempre a Y >= min_person_height_m.
-  // Puntos con Y < min_person_height_m están entre la cámara y el suelo
-  // (obstáculos, cuerpo, etc.) y no son candidatos.
-  std::vector<int> all_idx(n);
-  std::iota(all_idx.begin(), all_idx.end(), 0);
-
+  // Primer filtro: puntos con Y >= min_person_height_m son candidatos a suelo.
+  // La cámara se monta en la cabeza; en el frame alineado Y=0 es la cámara
+  // e Y crece hacia abajo. El suelo siempre está a Y >= min_person_height_m.
   std::vector<int> floor_idx;
   floor_idx.reserve(n);
   for (int i = 0; i < n; ++i) {
@@ -378,12 +389,66 @@ GroundEstimator::Plane GroundEstimator::stage4_ransac(
       floor_idx.push_back(i);
   }
 
+  // Histograma de Y sobre los candidatos: localizar el nivel del suelo.
+  // El pico es la superficie horizontal más densa; la banda
+  // [y_pico - hist_band_low_m, y_pico + hist_band_high_m] concentra los
+  // puntos del suelo y excluye obstáculos y paredes del pool de RANSAC.
+  std::vector<int> band_idx;
+  if (static_cast<int>(floor_idx.size()) >= 3) {
+    float y_lo = std::numeric_limits<float>::max();
+    float y_hi = std::numeric_limits<float>::lowest();
+    for (int i : floor_idx) {
+      y_lo = std::min(y_lo, cloud[i].y);
+      y_hi = std::max(y_hi, cloud[i].y);
+    }
+    const float bin  = cfg_.hist_bin_m;
+    const int n_bins = std::max(1, static_cast<int>((y_hi - y_lo) / bin) + 1);
+    std::vector<int> hist(n_bins, 0);
+    for (int i : floor_idx) {
+      int b = static_cast<int>((cloud[i].y - y_lo) / bin);
+      b = std::clamp(b, 0, n_bins - 1);
+      hist[b]++;
+    }
+    const int   peak_bin = static_cast<int>(
+        std::max_element(hist.begin(), hist.end()) - hist.begin());
+    const float y_peak   = y_lo + (peak_bin + 0.5f) * bin;
+
+    const float y_band_lo = y_peak - cfg_.hist_band_low_m;
+    const float y_band_hi = y_peak + cfg_.hist_band_high_m;
+    band_idx.reserve(floor_idx.size());
+    for (int i : floor_idx) {
+      if (cloud[i].y >= y_band_lo && cloud[i].y <= y_band_hi)
+        band_idx.push_back(i);
+    }
+  }
+
+  // Fallback: si la banda queda vacía (suelo no visible o nube degenerada),
+  // usar floor_idx para no rechazar la búsqueda prematuramente.
+  if (static_cast<int>(band_idx.size()) < 3)
+    band_idx = floor_idx;
+
+  const int n_band = static_cast<int>(band_idx.size());
+  if (n_band < 3) return Plane{};  // suelo no visible en la escena
+
   Plane best;
   best.quality = -1.0f;
-
   std::mt19937 rng(12345);
 
-  // Fase 1: RANSAC solo sobre candidatos a suelo (70% de las iteraciones)
+  // Cuenta inliers sobre band_idx con tolerancia variable ε_i = max(ε, k·‖p_i‖).
+  // quality = cnt / n_band (denominador relativo a la banda, no a la nube total).
+  auto count_band_inliers = [&](const Plane& cand) -> int {
+    int cnt = 0;
+    for (int bi : band_idx) {
+      const auto& p   = cloud[bi];
+      const float r   = std::sqrt(p.x*p.x + p.y*p.y + p.z*p.z);
+      const float eps = std::max(tol, cfg_.floor_noise_k * r);
+      if (std::abs(pointPlaneDist(p, cand)) < eps) cnt++;
+    }
+    return cnt;
+  };
+
+  // Fase 1: muestrea desde band_idx (70 % de las iteraciones).
+  // Fase 2: si la calidad no alcanza el umbral, amplía a floor_idx completo.
   const int iter_phase1 = static_cast<int>(max_iter * 0.7f);
   const int iter_phase2 = max_iter - iter_phase1;
 
@@ -391,13 +456,11 @@ GroundEstimator::Plane GroundEstimator::stage4_ransac(
     if (static_cast<int>(pool.size()) < 3) return;
     std::uniform_int_distribution<int> dist(0, static_cast<int>(pool.size())-1);
     for (int it = 0; it < iters; it++) {
-      // Muestrear 3 puntos aleatorios
       int i0 = pool[dist(rng)];
       int i1 = pool[dist(rng)];
       int i2 = pool[dist(rng)];
       if (i0 == i1 || i0 == i2 || i1 == i2) continue;
 
-      // Plano por los 3 puntos
       const auto& p0 = cloud[i0];
       const auto& p1 = cloud[i1];
       const auto& p2 = cloud[i2];
@@ -410,31 +473,24 @@ GroundEstimator::Plane GroundEstimator::stage4_ransac(
       if (nm < 1e-8f) continue;
       nx /= nm; ny /= nm; nz /= nm;
       float d = -(nx*p0.x + ny*p0.y + nz*p0.z);
-      // Convención: normal apunta hacia arriba (Y negativo)
       if (ny > 0) { nx=-nx; ny=-ny; nz=-nz; d=-d; }
 
       Plane cand; cand.nx=nx; cand.ny=ny; cand.nz=nz; cand.d=d; cand.valid=true;
 
-      // Contar inliers sobre la nube completa del pool completo
-      int cnt = 0;
-      for (const auto& p : cloud)
-        if (std::abs(pointPlaneDist(p, cand)) < tol) cnt++;
-
-      float q = static_cast<float>(cnt) / static_cast<float>(n);
+      const int   cnt = count_band_inliers(cand);
+      const float q   = static_cast<float>(cnt) / static_cast<float>(n_band);
       if (q > best.quality) {
-        best = cand;
-        best.quality = q;
+        best           = cand;
+        best.quality   = q;
         best.n_inliers = cnt;
       }
     }
   };
 
-  do_ransac(floor_idx, iter_phase1);
+  do_ransac(band_idx, iter_phase1);
 
-  // Si la fase 1 no fue suficiente, ampliar al conjunto completo
-  if (best.quality < cfg_.ransac_min_inliers) {
-    do_ransac(all_idx, iter_phase2);
-  }
+  if (best.quality < cfg_.ransac_min_inliers)
+    do_ransac(floor_idx, iter_phase2);
 
   if (best.quality < cfg_.ransac_min_inliers) best.valid = false;
   return best;
@@ -478,12 +534,15 @@ GroundEstimator::Plane GroundEstimator::stage6_refine(
   Plane refined = fitPlaneLS(inliers);
   if (!refined.valid) return initial;
 
-  // Actualizar métricas de calidad sobre los inliers finales
+  // n_inliers: conteo real sobre la nube completa con el plano refinado.
+  // quality: se conserva el valor calculado en Stage 4, que usa n_banda como
+  // denominador. Recalcularlo con n_total aquí produciría un denominador
+  // inconsistente con el umbral min_quality de Stage 5.
   int cnt = 0;
   for (const auto& p : cloud)
     if (std::abs(pointPlaneDist(p, refined)) < tol) cnt++;
   refined.n_inliers = cnt;
-  refined.quality   = static_cast<float>(cnt) / static_cast<float>(cloud.size());
+  refined.quality   = initial.quality;
   return refined;
 }
 
