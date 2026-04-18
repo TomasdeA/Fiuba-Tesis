@@ -1,7 +1,7 @@
 #pragma once
 
+#include <nav_math/nav_math.hpp>
 #include <array>
-#include <cmath>
 
 namespace local_mapper {
 
@@ -24,13 +24,8 @@ namespace local_mapper {
  */
 class GravityAligner {
  public:
-  struct Quaternion {
-    float w, x, y, z;  ///< Parte escalar primero (convención Hamilton)
-
-    /// Rota un punto usando este cuaternión (asumiendo unitario).
-     std::array<float, 3> rotatePoint(
-        float px, float py, float pz) const;
-  };
+  /// Cuaternión de Hamilton compartido con nav_math.
+  using Quaternion = nav_math::Quaternion;
 
   GravityAligner() = default;
 

@@ -14,6 +14,7 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
+  <depend>nav_math</depend>
   <depend>rclcpp</depend>
   <depend>sensor_msgs</depend>
 

@@ -200,8 +200,8 @@ class DepthProjectionNode : public rclcpp::Node {
       std::vector<local_mapper::GroundEstimator::Point3D> ge_cloud;
       ge_cloud.reserve(valid.size());
       for (const auto& pt : valid) {
-        const auto r = q_.rotatePoint(pt.x, pt.y, pt.z);
-        ge_cloud.push_back({r[0], r[1], r[2]});
+        const auto r = q_.rotate(nav_math::Vec3{pt.x, pt.y, pt.z});
+        ge_cloud.push_back({r.x, r.y, r.z});
       }
 
       const bool ground_ok = ground_estimator_->estimate(ge_cloud);
@@ -352,7 +352,7 @@ class DepthProjectionNode : public rclcpp::Node {
   std::unique_ptr<local_mapper::ImuFilter>         imu_filter_;
   std::unique_ptr<local_mapper::GroundEstimator>   ground_estimator_;
   local_mapper::GravityAligner                     aligner_;
-  local_mapper::GravityAligner::Quaternion         q_{1.0f, 0.0f, 0.0f, 0.0f};
+  nav_math::Quaternion                              q_{1.0f, 0.0f, 0.0f, 0.0f};
   std::shared_ptr<tf2_ros::TransformBroadcaster>   tf_br_;
 
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr      depth_sub_;

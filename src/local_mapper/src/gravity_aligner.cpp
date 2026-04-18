@@ -3,32 +3,6 @@
 
 namespace local_mapper {
 
-// ── Quaternion::rotatePoint ───────────────────────────────────────────────────
-// Rotación de un vector por un cuaternión unitario: v' = q * v * q*
-// donde q* es el conjugado de q.
-
-std::array<float, 3> GravityAligner::Quaternion::rotatePoint(
-    float px, float py, float pz) const
-{
-  const float qw = w, qx = x, qy = y, qz = z;
-
-  // Producto q * p (p tratado como cuaternión puro: parte escalar = 0)
-  const float qpw = -qx*px - qy*py - qz*pz;
-  const float qpx =  qw*px + qy*pz - qz*py;
-  const float qpy =  qw*py + qz*px - qx*pz;
-  const float qpz =  qw*pz + qx*py - qy*px;
-
-  // Producto (q*p) * q*  (q* = {w, -x, -y, -z})
-  // v' = q * v * q*  →  result = (q*v) * q*
-  // Usando la fórmula de multiplicación de cuaterniones con q2 = (qw,-qx,-qy,-qz):
-  //   result.x = q1.w*(-qx) + q1.x*qw  + q1.y*(-qz) - q1.z*(-qy)
-  const float rpx = -qpw*qx + qpx*qw - qpy*qz + qpz*qy;
-  const float rpy = -qpw*qy + qpy*qw + qpx*qz - qpz*qx;
-  const float rpz = -qpw*qz + qpz*qw - qpx*qy + qpy*qx;
-
-  return {rpx, rpy, rpz};
-}
-
 // ── GravityAligner::estimateOrientation ──────────────────────────────────────
 // Calcula el cuaternión de rotación mínima que lleva el vector aceleración
 // normalizado al vector "abajo" canónico (0, -1, 0) del frame óptico.
@@ -91,7 +65,8 @@ std::array<float, 3> GravityAligner::alignToGravity(
     float ax, float ay, float az) const
 {
   const Quaternion q = estimateOrientation(ax, ay, az);
-  return q.rotatePoint(px, py, pz);
+  const nav_math::Vec3 r = q.rotate(nav_math::Vec3{px, py, pz});
+  return {r.x, r.y, r.z};
 }
 
 }  // namespace local_mapper

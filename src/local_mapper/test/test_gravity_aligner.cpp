@@ -13,11 +13,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST(GravityAligner, QuaternionIdentityNoRotation) {
-  local_mapper::GravityAligner::Quaternion q{1.0f, 0.0f, 0.0f, 0.0f};
-  const auto pt = q.rotatePoint(1.0f, 2.0f, 3.0f);
-  EXPECT_NEAR(pt[0], 1.0f, 1e-4f);
-  EXPECT_NEAR(pt[1], 2.0f, 1e-4f);
-  EXPECT_NEAR(pt[2], 3.0f, 1e-4f);
+  nav_math::Quaternion q{1.0f, 0.0f, 0.0f, 0.0f};
+  const auto r = q.rotate(nav_math::Vec3{1.0f, 2.0f, 3.0f});
+  EXPECT_NEAR(r.x, 1.0f, 1e-4f);
+  EXPECT_NEAR(r.y, 2.0f, 1e-4f);
+  EXPECT_NEAR(r.z, 3.0f, 1e-4f);
 }
 
 TEST(GravityAligner, EstimateOrientationFlat_IsIdentity) {
