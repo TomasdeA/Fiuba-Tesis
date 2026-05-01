@@ -18,6 +18,7 @@ services:
       - "dialout"
       - "video"
       - "plugdev"
+      - "986"   # GID del grupo gpio en este Raspberry Pi OS
 
     environment:
       - ROS_DISTRO=humble
