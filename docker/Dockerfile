@@ -68,6 +68,12 @@ RUN groupadd --gid $USER_GID $USERNAME \
     && echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
 # === Shell init ===
+# /usr/local/bin y /usr/local/lib deben tener precedencia sobre los de ROS apt
+# para que librealsense buildeada desde source (v2.57.6, RSUSB backend) sea la
+# que usa el wrapper de ROS, tanto para binarios (rs-enumerate-devices, etc.)
+# como para la carga dinámica.
+ENV PATH="/usr/local/bin:${PATH}"
+ENV LD_LIBRARY_PATH="/usr/local/lib:${LD_LIBRARY_PATH}"
 RUN echo "source /opt/ros/humble/setup.bash" >> /etc/bash.bashrc
 ENV RUNNING_IN_CONTAINER=1
 RUN echo '[ -f /workspaces/tesis_nav_assistant_ws/tools/dev/context_env.sh ] && source /workspaces/tesis_nav_assistant_ws/tools/dev/context_env.sh' >> /etc/bash.bashrc
