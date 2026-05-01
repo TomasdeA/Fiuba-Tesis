@@ -27,14 +27,16 @@ def generate_launch_description():
     realsense = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(rs_launch_path),
         launch_arguments={
-            "enable_gyro":        "true",
-            "enable_accel":       "true",
-            "enable_depth":       "true",
-            "enable_color":       "true",
-            "enable_infra1":      "false",
-            "enable_infra2":      "false",
-            "unite_imu_method":   "1",
-            "align_depth.enable": "true",
+            "enable_gyro":               "true",
+            "enable_accel":              "true",
+            "enable_depth":              "true",
+            "enable_color":              "true",
+            "enable_infra1":             "false",
+            "enable_infra2":             "false",
+            "unite_imu_method":          "1",
+            "align_depth.enable":        "true",
+            "depth_module.depth_profile": "848x480x15",
+            "rgb_camera.color_profile":   "640x480x15",
         }.items(),
     )
 
