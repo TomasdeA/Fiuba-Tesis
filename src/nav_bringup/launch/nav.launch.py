@@ -27,15 +27,15 @@ def generate_launch_description():
     realsense = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(rs_launch_path),
         launch_arguments={
-            "enable_gyro":               "true",
-            "enable_accel":              "true",
+            "enable_gyro":               "false",
+            "enable_accel":              "false",
             "enable_depth":              "true",
             "enable_color":              "false",
             "enable_infra1":             "false",
             "enable_infra2":             "false",
-            "unite_imu_method":          "1",
+            "unite_imu_method":          "0",
             "align_depth.enable":        "false",
-            "depth_module.depth_profile": "848x480x30",
+            "depth_module.depth_profile": "640x480x15",
             "initial_reset":             "true",
             "reconnect_timeout":         "10.0",
         }.items(),
@@ -56,6 +56,7 @@ def generate_launch_description():
         name="hardware_manager",
         output="screen",
         condition=IfCondition(use_hw),
+        parameters=[{"port": "/dev/ttyACM1"}],
     )
 
     viz = Node(
