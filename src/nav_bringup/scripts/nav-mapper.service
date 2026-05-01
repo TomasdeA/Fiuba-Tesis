@@ -1,0 +1,45 @@
+[Unit]
+Description=Nav Mapper — ROS2 perception + haptic feedback stack
+Documentation=https://github.com/your-repo/nav_mapper
+# Esperar a que el sistema de red esté disponible (necesario para DDS/ROS2)
+After=network.target
+# Si el controlador GPIO tiene su propio servicio separado, no hace falta
+# listarlo aquí porque ya se lanza desde nav.launch.py con use_gpio_recorder=true
+
+[Service]
+# ── Usuario ────────────────────────────────────────────────────────────────
+User=pi
+Group=pi
+
+# ── Variables de entorno ───────────────────────────────────────────────────
+Environment="HOME=/home/pi"
+Environment="ROS_DOMAIN_ID=0"
+# WS_PATH es usado por nav.launch.py para localizar el config de parámetros
+Environment="WS_PATH=/home/pi/nav_mapper"
+
+# ── Comando de arranque ────────────────────────────────────────────────────
+# Se usa bash -c para poder hacer source de los setups de ROS2 y del workspace.
+# Ajustá la ruta si tu workspace no está en /home/pi/nav_mapper.
+ExecStart=/bin/bash -c '\
+  source /opt/ros/humble/setup.bash && \
+  source /home/pi/nav_mapper/install/setup.bash && \
+  exec ros2 launch nav_bringup nav.launch.py \
+       use_hw:=true \
+       use_gpio_recorder:=true'
+
+# ── Política de reinicio ───────────────────────────────────────────────────
+# Se reinicia automáticamente si el proceso termina con error.
+Restart=on-failure
+RestartSec=5s
+
+# Tiempo máximo para que todos los nodos hijos cierren al detener el servicio.
+# ros2 bag record necesita tiempo para hacer flush y cerrar el bag limpiamente.
+TimeoutStopSec=30s
+
+# ── Salida ─────────────────────────────────────────────────────────────────
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nav-mapper
+
+[Install]
+WantedBy=multi-user.target
