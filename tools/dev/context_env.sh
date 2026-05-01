@@ -132,18 +132,21 @@ tesis-run() {
 
   cd "$WS_ROOT" || return 1
 
-  local compose_file=""
+  local compose_file
   if _is_raspi_host; then
     compose_file="docker-compose.raspi.yml"
-    echo "[tesis-run] Host detectado: RASPI -> usando $compose_file"
-    docker compose -f "$compose_file" up -d || return 1
+    echo "[tesis-run] Host detectado: RASPI -> usando -f $compose_file"
   else
     compose_file="docker-compose.yml"
-    echo "[tesis-run] Host detectado: PC -> usando $compose_file"
-    docker compose -f "$compose_file" up -d || return 1
+    echo "[tesis-run] Host detectado: PC -> usando -f $compose_file"
   fi
 
-  echo "[tesis-run] Entrando al contenedor tesis_nav_dev..."
+  echo "[tesis-run] Ejecutando:"
+  echo "  docker compose -f $compose_file up -d"
+  docker compose -f "$compose_file" up -d || return 1
+
+  echo "[tesis-run] Ejecutando:"
+  echo "  docker exec -it tesis_nav_dev bash -l"
   docker exec -it tesis_nav_dev bash -l
 }
 nav-start() { 

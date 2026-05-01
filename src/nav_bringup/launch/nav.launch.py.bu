@@ -26,8 +26,6 @@ def generate_launch_description():
         launch_arguments={
             "enable_gyro": "false",
             "enable_accel": "false",
-            "enable_color": "false",
-            "depth_module.depth_profile": "640x480x15",
         }.items(),
     )
 
