@@ -82,16 +82,25 @@ public:
 
         duty_scale_ = static_cast<float>(this->declare_parameter<double>("duty_scale", 0.4));
 
-        open_uart();
-
         sub_ = this->create_subscription<custom_interfaces::msg::DepthGrid>(
             topic_, 10,
             std::bind(&DepthGridToUart::on_grid, this, std::placeholders::_1));
 
-        RCLCPP_INFO(
-            get_logger(),
-            "DepthGridToUart listo. Sub=%s UART=%s@%d grid=%dx%d z_min=%.2f z_max=%.2f",
-            topic_.c_str(), port_.c_str(), baud_, expected_rows_, expected_cols_, z_min_m_, z_max_m_);
+        // Intentar abrir UART; si falla, reintentar cada 2s
+        if (!try_open_uart())
+        {
+            RCLCPP_WARN(get_logger(), "UART %s no disponible. Reintentando cada 2s...", port_.c_str());
+            reconnect_timer_ = this->create_wall_timer(
+                std::chrono::seconds(2),
+                std::bind(&DepthGridToUart::reconnect_cb, this));
+        }
+        else
+        {
+            RCLCPP_INFO(
+                get_logger(),
+                "DepthGridToUart listo. Sub=%s UART=%s@%d grid=%dx%d z_min=%.2f z_max=%.2f",
+                topic_.c_str(), port_.c_str(), baud_, expected_rows_, expected_cols_, z_min_m_, z_max_m_);
+        }
     }
 
     ~DepthGridToUart() override
@@ -112,12 +121,12 @@ public:
     }
 
 private:
-    void open_uart()
+    bool try_open_uart()
     {
         fd_ = open(port_.c_str(), O_RDWR | O_NOCTTY | O_SYNC);
         if (fd_ < 0)
         {
-            throw std::runtime_error("No pude abrir " + port_ + ": " + std::strerror(errno));
+            return false;
         }
 
         termios tty{};
@@ -148,14 +157,38 @@ private:
 
         if (tcsetattr(fd_, TCSANOW, &tty) != 0)
         {
-            throw std::runtime_error("tcsetattr failed: " + std::string(std::strerror(errno)));
+            close(fd_);
+            fd_ = -1;
+            return false;
         }
 
         RCLCPP_INFO(get_logger(), "UART abierto %s @ %d", port_.c_str(), baud_);
+        return true;
+    }
+
+    void reconnect_cb()
+    {
+        if (try_open_uart())
+        {
+            reconnect_timer_->cancel();
+            reconnect_timer_.reset();
+            RCLCPP_INFO(
+                get_logger(),
+                "DepthGridToUart listo. Sub=%s UART=%s@%d grid=%dx%d z_min=%.2f z_max=%.2f",
+                topic_.c_str(), port_.c_str(), baud_, expected_rows_, expected_cols_, z_min_m_, z_max_m_);
+        }
+        else
+        {
+            RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 10000,
+                                 "UART %s aun no disponible...", port_.c_str());
+        }
     }
 
     void on_grid(const custom_interfaces::msg::DepthGrid::SharedPtr msg)
     {
+        if (fd_ < 0)
+            return; // UART aun no disponible
+
         // throttle
         const auto now = this->now();
         if ((now - last_send_time_).nanoseconds() <
@@ -272,20 +305,14 @@ private:
 
     // ROS
     rclcpp::Subscription<custom_interfaces::msg::DepthGrid>::SharedPtr sub_;
+    rclcpp::TimerBase::SharedPtr reconnect_timer_;
     rclcpp::Time last_send_time_{0, 0, RCL_ROS_TIME};
 };
 
 int main(int argc, char *argv[])
 {
     rclcpp::init(argc, argv);
-    try
-    {
-        rclcpp::spin(std::make_shared<DepthGridToUart>());
-    }
-    catch (const std::exception &e)
-    {
-        fprintf(stderr, "Fatal: %s\n", e.what());
-    }
+    rclcpp::spin(std::make_shared<DepthGridToUart>());
     rclcpp::shutdown();
     return 0;
 }
