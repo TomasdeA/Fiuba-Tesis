@@ -201,9 +201,6 @@ private:
                     duty = distance_to_duty(cell.min_m, z_min_m_, z_max_m_);
                 }
 
-                duty = static_cast<int>(duty * duty_scale_ + 0.5f);
-                duty = clamp_int(duty, 0, 100);
-
                 line += " ";
                 line += std::to_string(duty);
             }
