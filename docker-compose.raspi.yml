@@ -18,7 +18,6 @@ services:
       - "dialout"
       - "video"
       - "plugdev"
-      - "gpio"   # grupo del chip GPIO en Raspberry Pi OS
 
     environment:
       - ROS_DISTRO=humble
