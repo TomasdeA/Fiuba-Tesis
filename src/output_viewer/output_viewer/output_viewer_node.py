@@ -33,7 +33,7 @@ class DepthGridHeatmapNode(Node):
     def __init__(self):
         super().__init__('depth_grid_heatmap')
 
-        self.declare_parameter('topic', '/depth_grid')
+        self.declare_parameter('topic', '/perception/depth_grid')
         self.declare_parameter('z_min', 0.6)
         self.declare_parameter('z_max', 4.0)
         self.declare_parameter('show_values', True)

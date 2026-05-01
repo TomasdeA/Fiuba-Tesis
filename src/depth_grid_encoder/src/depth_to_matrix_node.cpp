@@ -33,7 +33,7 @@ public:
 
         heartbeat_ = this->create_wall_timer(
             1000ms, [this](){
-                RCLCPP_INFO(this->get_logger(),
+                RCLCPP_DEBUG(this->get_logger(),
                 "activo | suscrito a %s | imágenes recibidas: %zu",
                 depth_topic_.c_str(), image_count_);
             }
