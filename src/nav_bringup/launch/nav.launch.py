@@ -30,13 +30,14 @@ def generate_launch_description():
             "enable_gyro":               "true",
             "enable_accel":              "true",
             "enable_depth":              "true",
-            "enable_color":              "true",
+            "enable_color":              "false",
             "enable_infra1":             "false",
             "enable_infra2":             "false",
             "unite_imu_method":          "1",
-            "align_depth.enable":        "true",
-            "depth_module.depth_profile": "848x480x15",
-            "rgb_camera.color_profile":   "640x480x15",
+            "align_depth.enable":        "false",
+            "depth_module.depth_profile": "848x480x30",
+            "initial_reset":             "true",
+            "reconnect_timeout":         "10.0",
         }.items(),
     )
 

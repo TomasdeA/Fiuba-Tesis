@@ -98,6 +98,14 @@ public:
     {
         if (fd_ >= 0)
         {
+            // Apagar todos los motores antes de cerrar
+            std::string stop = "M";
+            for (int i = 0; i < expected_rows_ * expected_cols_; ++i)
+                stop += " 0";
+            stop += "\n";
+            write(fd_, stop.data(), stop.size());
+            RCLCPP_INFO(get_logger(), "Shutdown: motores apagados.");
+
             close(fd_);
             fd_ = -1;
         }
@@ -218,6 +226,31 @@ private:
         }
 
         RCLCPP_DEBUG_THROTTLE(get_logger(), *get_clock(), 1000, "TX -> %s", line.c_str());
+
+        // Log cada 2s: primeros 10 valores y el duty máximo para diagnóstico
+        int max_duty = *std::max_element(
+            std::next(line.begin(), 2), // saltar "M "
+            line.end(),
+            [](char a, char b)
+            { return a < b; }); // comparación char, solo indicativa
+        // Calcular max numérico real
+        int max_val = 0;
+        for (int c = cols - 1; c >= 0; --c)
+        {
+            for (int r = 0; r < rows; ++r)
+            {
+                const auto &cell = msg->cells[static_cast<size_t>(r * cols + c)];
+                if (cell.count > 0)
+                {
+                    int d = distance_to_duty(cell.min_m, z_min_m_, z_max_m_);
+                    if (d > max_val)
+                        max_val = d;
+                }
+            }
+        }
+        (void)max_duty;
+        RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 2000,
+                             "TX (duty_max=%d): %s", max_val, line.c_str());
     }
 
     // Params
