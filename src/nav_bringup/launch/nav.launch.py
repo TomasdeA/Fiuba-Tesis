@@ -56,7 +56,7 @@ def generate_launch_description():
         name="hardware_manager",
         output="screen",
         condition=IfCondition(use_hw),
-        parameters=[{"port": "/dev/ttyACM0"}],
+        parameters=[{"port": "/dev/ttyACM1", "z_max_m": 5.0}],
     )
 
     viz = Node(
