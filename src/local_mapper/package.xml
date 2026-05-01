@@ -17,6 +17,7 @@
   <depend>nav_math</depend>
   <depend>rclcpp</depend>
   <depend>sensor_msgs</depend>
+  <depend>nav_msgs</depend>
 
   <test_depend>ament_cmake_gtest</test_depend>
   <test_depend>rclpy</test_depend>
