@@ -37,11 +37,5 @@ services:
       - ${HOST_WS}:${CONTAINER_WS}
       - ./docker/context.sh:/etc/profile.d/context.sh:ro
 
-    group_add:
-      - "dialout"
-      - "video"
-      - "plugdev"
-      - "gpio"   # grupo del chip GPIO en Raspberry Pi OS
-
     working_dir: ${CONTAINER_WS}
     tty: true
