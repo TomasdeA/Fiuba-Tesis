@@ -72,6 +72,8 @@ def generate_launch_description():
     gpio_recorder = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(gpio_recorder_launch_path),
         condition=IfCondition(use_gpio_recorder),
+        # No heredar launch_arguments del padre (especialmente params_file)
+        launch_arguments={}.items(),
     )
 
     return LaunchDescription([
