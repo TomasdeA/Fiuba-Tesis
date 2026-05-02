@@ -14,6 +14,7 @@ def generate_launch_description():
     use_hw = LaunchConfiguration("use_hw")
     use_viz = LaunchConfiguration("use_viz")
     use_gpio_recorder = LaunchConfiguration("use_gpio_recorder")
+    hw_port = LaunchConfiguration("hw_port")
 
     ws = EnvironmentVariable("WS_PATH")
     default_cfg = [ws, "/src/depth_grid_encoder/config/depth_to_matrix.yaml"]
@@ -56,7 +57,7 @@ def generate_launch_description():
         name="hardware_manager",
         output="screen",
         condition=IfCondition(use_hw),
-        parameters=[{"port": "/dev/ttyACM0", "z_max_m": 3.0, "duty_max": 70}],
+        parameters=[{"port": hw_port, "z_max_m": 3.0, "duty_max": 70}],
     )
 
     viz = Node(
@@ -85,6 +86,11 @@ def generate_launch_description():
             "use_hw",
             default_value="false",
             description="Start hardware_manager node (haptic actuators via UART).",
+        ),
+        DeclareLaunchArgument(
+            "hw_port",
+            default_value="/dev/ttyACM0",
+            description="Serial port for the haptic actuator ESP32.",
         ),
         DeclareLaunchArgument(
             "use_viz",
