@@ -25,21 +25,27 @@ def generate_launch_description():
     realsense_pkg_share = get_package_share_directory("realsense2_camera")
     rs_launch_path = os.path.join(realsense_pkg_share, "launch", "rs_launch.py")
 
-    realsense = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(rs_launch_path),
-        launch_arguments={
-            "enable_gyro":               "true",
-            "enable_accel":              "true",
-            "enable_depth":              "true",
-            "enable_color":              "false",
-            "enable_infra1":             "false",
-            "enable_infra2":             "false",
-            "unite_imu_method":          "1",
-            "align_depth.enable":        "false",
+    realsense = Node(
+        package="realsense2_camera",
+        executable="realsense2_camera_node",
+        name="camera",
+        namespace="camera",
+        output="screen",
+        respawn=True,
+        respawn_delay=2.0,
+        parameters=[{
+            "enable_gyro":                True,
+            "enable_accel":               True,
+            "enable_depth":               True,
+            "enable_color":               False,
+            "enable_infra1":              False,
+            "enable_infra2":              False,
+            "unite_imu_method":           1,
+            "align_depth.enable":         False,
             "depth_module.depth_profile": "640x480x15",
-            "initial_reset":             "true",
-            "reconnect_timeout":         "10.0",
-        }.items(),
+            "initial_reset":              True,
+            "reconnect_timeout":          10.0,
+        }],
     )
 
     # ── Perception pipeline ───────────────────────────────────────────────────

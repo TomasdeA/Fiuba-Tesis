@@ -45,18 +45,20 @@ public:
             if (image_count_ == watchdog_last_count_ && image_count_ > 0)
             {
                 watchdog_stale_s_++;
-                if (watchdog_stale_s_ >= watchdog_timeout_s_)
+                if (watchdog_stale_s_ >= watchdog_timeout_s_ && !watchdog_fired_)
                 {
                     RCLCPP_WARN(get_logger(),
                                 "[watchdog] Sin frames nuevos por %ds. Reiniciando realsense2_camera_node...",
                                 watchdog_stale_s_);
                     std::system("pkill -f realsense2_camera_node");
+                    watchdog_fired_ = true;
                     watchdog_stale_s_ = 0;
                 }
             }
             else
             {
                 watchdog_stale_s_ = 0;
+                watchdog_fired_ = false;
             }
             watchdog_last_count_ = image_count_; });
 
@@ -102,6 +104,7 @@ private:
     int watchdog_timeout_s_{1};
     int watchdog_stale_s_{0};
     size_t watchdog_last_count_{0};
+    bool watchdog_fired_{false};
 
     // Subscriptors
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr img_sub_;
