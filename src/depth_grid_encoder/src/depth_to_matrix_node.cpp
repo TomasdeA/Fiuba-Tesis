@@ -38,7 +38,7 @@ public:
                           depth_topic_.c_str(), image_count_); });
 
         // Watchdog: si no llegan frames en N segundos, matar realsense para forzar reconexion
-        watchdog_timeout_s_ = this->declare_parameter<int>(\"watchdog_timeout_s\", 1);
+        watchdog_timeout_s_ = this->declare_parameter<int>("watchdog_timeout_s", 1);
         watchdog_ = this->create_wall_timer(
             1000ms, [this](){
             if (image_count_ == watchdog_last_count_ && image_count_ > 0)
