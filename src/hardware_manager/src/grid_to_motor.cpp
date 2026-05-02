@@ -72,6 +72,7 @@ public:
         // Distance->duty mapping
         z_min_m_ = static_cast<float>(this->declare_parameter<double>("z_min_m", 0.25));
         z_max_m_ = static_cast<float>(this->declare_parameter<double>("z_max_m", 0.8));
+        duty_max_ = this->declare_parameter<int>("duty_max", 70);
 
         // Throttling (para no saturar UART)
         send_period_ms_ = this->declare_parameter<int>("send_period_ms", 50);
@@ -79,8 +80,6 @@ public:
         // Expected grid shape
         expected_rows_ = this->declare_parameter<int>("expected_rows", 5);
         expected_cols_ = this->declare_parameter<int>("expected_cols", 10);
-
-        duty_scale_ = static_cast<float>(this->declare_parameter<double>("duty_scale", 0.4));
 
         sub_ = this->create_subscription<custom_interfaces::msg::DepthGrid>(
             topic_, 10,
@@ -240,6 +239,7 @@ private:
                 if (cell.count > 0)
                 {
                     duty = distance_to_duty(cell.min_m, z_min_m_, z_max_m_);
+                    duty = duty * duty_max_ / 100;
                 }
 
                 line += " ";
@@ -298,7 +298,7 @@ private:
     int expected_rows_{5};
     int expected_cols_{10};
 
-    float duty_scale_{0.4f};
+    int duty_max_{70};
 
     // UART
     int fd_{-1};
