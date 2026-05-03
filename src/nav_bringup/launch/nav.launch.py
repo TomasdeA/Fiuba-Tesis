@@ -216,7 +216,7 @@ def generate_launch_description():
         nav_odometry,
         depth_projection,
         depth_to_matrix,
-        haptic_grid,
+        #haptic_grid,
         hw_manager,
         viz,
         rviz,
