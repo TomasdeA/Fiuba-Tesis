@@ -34,11 +34,11 @@ def generate_launch_description():
         'depth_to_matrix.yaml',
     ])
 
-    haptic_grid_cfg = PathJoinSubstitution([
-        FindPackageShare('haptic_grid_generator'),
-        'config',
-        'params.yaml',
-    ])
+    #haptic_grid_cfg = PathJoinSubstitution([
+    #    FindPackageShare('haptic_grid_generator'),
+    #    'config',
+    #    'params.yaml',
+    #])
 
     local_mapper_rviz = PathJoinSubstitution([
         FindPackageShare('local_mapper'),
@@ -121,13 +121,13 @@ def generate_launch_description():
     )
 
     # ── Haptic grid generator ─────────────────────────────
-    haptic_grid = Node(
-        package='haptic_grid_generator',
-        executable='haptic_grid_generator_node',
-        name='haptic_grid_generator',
-        parameters=[haptic_grid_cfg],
-        output='screen',
-    )
+    #haptic_grid = Node(
+    #    package='haptic_grid_generator',
+    #    executable='haptic_grid_generator_node',
+    #    name='haptic_grid_generator',
+    #    parameters=[haptic_grid_cfg],
+    #    output='screen',
+    #)
 
     # ── Hardware manager (UART → motors) ──────────────────
     hw_manager = Node(
