@@ -343,7 +343,7 @@ private:
                 "Verificar remap del topic 'depth'.");
         }
 
-        RCLCPP_INFO(get_logger(),
+        RCLCPP_DEBUG(get_logger(),
             "\n"
             "[Timings /5s] ────────────────────────────────────\n"
             "  Depth frames recv /5s: %ld\n"
