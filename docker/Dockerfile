@@ -74,7 +74,9 @@ RUN groupadd --gid $USER_GID $USERNAME \
 # como para la carga dinámica.
 ENV PATH="/usr/local/bin:${PATH}"
 ENV LD_LIBRARY_PATH="/usr/local/lib:${LD_LIBRARY_PATH}"
-RUN echo "source /opt/ros/humble/setup.bash" >> /etc/bash.bashrc
+RUN echo "source /opt/ros/humble/setup.bash" >> /etc/bash.bashrc && \
+    echo "export PATH=/usr/local/bin:\$PATH" >> /etc/bash.bashrc && \
+    echo "export LD_LIBRARY_PATH=/usr/local/lib:\$LD_LIBRARY_PATH" >> /etc/bash.bashrc
 ENV RUNNING_IN_CONTAINER=1
 RUN echo '[ -f /workspaces/tesis_nav_assistant_ws/tools/dev/context_env.sh ] && source /workspaces/tesis_nav_assistant_ws/tools/dev/context_env.sh' >> /etc/bash.bashrc
 
