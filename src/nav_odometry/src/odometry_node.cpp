@@ -337,12 +337,6 @@ private:
     void logPerfStats() {
         const auto est = estimator_->getPerfReport();
 
-        if (depth_frames_received_ == 0) {
-            RCLCPP_WARN(get_logger(),
-                "No se recibieron frames de profundidad en los últimos 5 s. "
-                "Verificar remap del topic 'depth'.");
-        }
-
         RCLCPP_DEBUG(get_logger(),
             "\n"
             "[Timings /5s] ────────────────────────────────────\n"
