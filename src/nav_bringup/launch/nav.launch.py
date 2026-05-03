@@ -1,121 +1,224 @@
 import os
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import (
+    DeclareLaunchArgument,
+    ExecuteProcess,
+    IncludeLaunchDescription,
+    LogInfo,
+)
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, EnvironmentVariable
+from launch.substitutions import (
+    LaunchConfiguration,
+    PathJoinSubstitution,
+)
 
 from launch_ros.actions import Node
-from ament_index_python.packages import get_package_share_directory
+from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
-    use_hw = LaunchConfiguration("use_hw")
-    use_viz = LaunchConfiguration("use_viz")
-    use_gpio_recorder = LaunchConfiguration("use_gpio_recorder")
-    hw_port = LaunchConfiguration("hw_port")
+    # ── Launch arguments ──────────────────────────────────
+    use_realsense      = LaunchConfiguration('use_realsense')
+    use_hw             = LaunchConfiguration('use_hw')
+    use_viz            = LaunchConfiguration('use_viz')
+    use_rviz           = LaunchConfiguration('use_rviz')
+    use_gpio_recorder  = LaunchConfiguration('use_gpio_recorder')
+    hw_port            = LaunchConfiguration('hw_port')
 
-    ws = EnvironmentVariable("WS_PATH")
-    default_cfg = [ws, "/src/depth_grid_encoder/config/depth_to_matrix.yaml"]
+    # ── Config file paths ─────────────────────────────────
+    depth_to_matrix_cfg = PathJoinSubstitution([
+        FindPackageShare('depth_grid_encoder'),
+        'config',
+        'depth_to_matrix.yaml',
+    ])
 
-    # ── RealSense ─────────────────────────────────────────────────────────────
-    # Only streams required for VIO + depth experiments are enabled.
-    # infra1/infra2 are disabled to save bandwidth on the Raspberry Pi.
-    realsense_pkg_share = get_package_share_directory("realsense2_camera")
-    rs_launch_path = os.path.join(realsense_pkg_share, "launch", "rs_launch.py")
+    haptic_grid_cfg = PathJoinSubstitution([
+        FindPackageShare('haptic_grid_generator'),
+        'config',
+        'params.yaml',
+    ])
 
-    realsense = Node(
-        package="realsense2_camera",
-        executable="realsense2_camera_node",
-        name="camera",
-        namespace="camera",
-        output="screen",
-        respawn=True,
-        respawn_delay=2.0,
-        parameters=[{
-            "enable_gyro":                True,
-            "enable_accel":               True,
-            "enable_depth":               True,
-            "enable_color":               False,
-            "enable_infra1":              False,
-            "enable_infra2":              False,
-            "unite_imu_method":           1,
-            "align_depth.enable":         False,
-            "depth_module.depth_profile": "640x480x15",
-            "initial_reset":              True,
-            "reconnect_timeout":          10.0,
-        }],
+    local_mapper_rviz = PathJoinSubstitution([
+        FindPackageShare('local_mapper'),
+        'rviz',
+        'depth_projection.rviz',
+    ])
+
+    nav_odometry_launch = PathJoinSubstitution([
+        FindPackageShare('nav_odometry'),
+        'launch',
+        'odometry.launch.py',
+    ])
+
+    depth_projection_launch = PathJoinSubstitution([
+        FindPackageShare('local_mapper'),
+        'launch',
+        'depth_projection.launch.py',
+    ])
+
+    # ── RealSense camera (optional — needs the HW) ───────
+    # We defer the import so the launch file doesn't crash when
+    # realsense2_camera is not installed on the dev machine.
+    realsense_actions = []
+    try:
+        from ament_index_python.packages import get_package_share_directory
+        get_package_share_directory('realsense2_camera')  # raises if not installed
+
+        realsense = Node(
+            package='realsense2_camera',
+            executable='realsense2_camera_node',
+            name='camera',
+            namespace='camera',
+            output='screen',
+            respawn=True,
+            respawn_delay=2.0,
+            condition=IfCondition(use_realsense),
+            parameters=[{
+                'enable_gyro':                  True,
+                'enable_accel':                 True,
+                'enable_depth':                 True,
+                'enable_infra1':                False,
+                'enable_infra2':                False,
+                'unite_imu_method':             1,
+                'align_depth.enable':           True,
+                'depth_module.depth_profile':   '848x480x30',
+                'initial_reset':                True,
+                'reconnect_timeout':            10.0,
+            }],
+        )
+        realsense_actions.append(realsense)
+    except Exception:
+        realsense_actions.append(
+            LogInfo(msg='realsense2_camera not found — skipping camera launch'))
+
+    # ── nav_odometry: IMU + estéreo → nav_msgs/Odometry ──
+    # Fusiona giroscopio, acelerómetro y tracker estéreo infrarrojo
+    # con un filtro complementario de Mahony.
+    # Publica nav_odom (nav_msgs/Odometry) que consume local_mapper.
+    nav_odometry = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(nav_odometry_launch),
     )
 
-    # ── Perception pipeline ───────────────────────────────────────────────────
+    # ── Local mapper (occupancy grid from depth + odometry) ──
+    depth_projection = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(depth_projection_launch),
+    )
+
+    # ── Depth-to-matrix encoder (depth grid) ──────────────
     depth_to_matrix = Node(
-        package="depth_grid_encoder",
-        executable="depth_to_matrix",
-        name="depth_to_matrix",
-        output="screen",
-        parameters=[LaunchConfiguration("params_file")],
+        package='depth_grid_encoder',
+        executable='depth_to_matrix',
+        name='depth_to_matrix',
+        parameters=[
+            LaunchConfiguration('params_file'),
+        ],
+        output='screen',
+        remappings=[
+            ('depth/image', '/camera/camera/depth/image_rect_raw'),
+        ],
     )
 
+    # ── Haptic grid generator ─────────────────────────────
+    haptic_grid = Node(
+        package='haptic_grid_generator',
+        executable='haptic_grid_generator_node',
+        name='haptic_grid_generator',
+        parameters=[haptic_grid_cfg],
+        output='screen',
+    )
+
+    # ── Hardware manager (UART → motors) ──────────────────
     hw_manager = Node(
-        package="hardware_manager",
-        executable="grid_to_motor",
-        name="hardware_manager",
-        output="screen",
+        package='hardware_manager',
+        executable='hardware_manager',
+        name='hardware_manager',
+        output='screen',
         condition=IfCondition(use_hw),
-        parameters=[{"port": hw_port, "z_max_m": 3.0, "duty_max": 70}],
+        parameters=[{'port': hw_port, 'z_max_m': 3.0, 'duty_max': 70}],
     )
 
+    # ── Output viewer (heatmap) ───────────────────────────
     viz = Node(
-        package="output_viewer",
-        executable="depth_grid_heatmap",
-        name="depth_grid_heatmap",
-        output="screen",
+        package='output_viewer',
+        executable='depth_grid_heatmap',
+        name='depth_grid_heatmap',
+        output='screen',
         condition=IfCondition(use_viz),
     )
 
-    # ── GPIO rosbag controller ────────────────────────────────────────────────
-    gpio_recorder_pkg_share = get_package_share_directory("gpio_rosbag_controller")
-    gpio_recorder_launch_path = os.path.join(
-        gpio_recorder_pkg_share, "launch", "gpio_rosbag_controller.launch.py"
+    # ── RViz2 (local_mapper debug view) ───────────────────
+    rviz = ExecuteProcess(
+        cmd=['rviz2', '-d', local_mapper_rviz],
+        output='screen',
+        condition=IfCondition(use_rviz),
     )
 
-    gpio_recorder = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(gpio_recorder_launch_path),
-        condition=IfCondition(use_gpio_recorder),
-        # No heredar launch_arguments del padre (especialmente params_file)
-        launch_arguments={}.items(),
-    )
+    # ── GPIO rosbag controller ────────────────────────────
+    gpio_recorder_actions = []
+    try:
+        from ament_index_python.packages import get_package_share_directory as _gpsd
+        gpio_recorder_pkg_share = _gpsd('gpio_rosbag_controller')
+        gpio_recorder_launch_path = os.path.join(
+            gpio_recorder_pkg_share, 'launch', 'gpio_rosbag_controller.launch.py')
 
+        gpio_recorder_actions.append(IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(gpio_recorder_launch_path),
+            condition=IfCondition(use_gpio_recorder),
+            launch_arguments={}.items(),
+        ))
+    except Exception:
+        gpio_recorder_actions.append(
+            LogInfo(msg='gpio_rosbag_controller not found — skipping'))
+
+    # ── Launch description ────────────────────────────────
     return LaunchDescription([
+        # Arguments
         DeclareLaunchArgument(
-            "use_hw",
-            default_value="false",
-            description="Start hardware_manager node (haptic actuators via UART).",
+            'use_realsense',
+            default_value='true',
+            description='Launch RealSense D435i camera driver',
         ),
         DeclareLaunchArgument(
-            "hw_port",
-            default_value="/dev/ttyACM0",
-            description="Serial port for the haptic actuator ESP32.",
+            'use_hw',
+            default_value='false',
+            description='Launch hardware_manager (UART motors)',
         ),
         DeclareLaunchArgument(
-            "use_viz",
-            default_value="false",
-            description="Start output viewer heatmap node.",
+            'hw_port',
+            default_value='/dev/ttyACM0',
+            description='Serial port for the haptic actuator ESP32',
         ),
         DeclareLaunchArgument(
-            "use_gpio_recorder",
-            default_value="true",
-            description="Start GPIO rosbag controller (physical switch + LED).",
+            'use_viz',
+            default_value='false',
+            description='Launch output_viewer heatmap',
         ),
         DeclareLaunchArgument(
-            "params_file",
-            default_value=default_cfg,
-            description="Path to the ROS2 params file (depth_to_matrix.yaml).",
+            'use_rviz',
+            default_value='true',
+            description='Launch RViz2 with local_mapper debug view',
         ),
-        realsense,
+        DeclareLaunchArgument(
+            'use_gpio_recorder',
+            default_value='true',
+            description='Launch GPIO rosbag controller (physical switch + LED)',
+        ),
+        DeclareLaunchArgument(
+            'params_file',
+            default_value=depth_to_matrix_cfg,
+            description='Path to depth_to_matrix params YAML',
+        ),
+
+        # Nodes — in pipeline order
+        *realsense_actions,
+        nav_odometry,
+        depth_projection,
         depth_to_matrix,
+        haptic_grid,
         hw_manager,
         viz,
-        gpio_recorder,
+        rviz,
+        *gpio_recorder_actions,
     ])

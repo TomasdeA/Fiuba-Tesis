@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd"
+            schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>nav_math</name>
+  <version>0.1.0</version>
+  <description>
+    Álgebra vectorial y cuaterniones compartidos (Vec3, Quaternion)
+    para los paquetes de navegación. Librería puramente header-only,
+    sin dependencias externas.
+  </description>
+  <maintainer email="dev@tesis.local">tesis</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

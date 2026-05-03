@@ -27,6 +27,7 @@ services:
 
     volumes:
       - /dev:/dev
+      - /sys:/sys:rw
       - /run/udev:/run/udev:ro
       - ${HOST_WS}:${CONTAINER_WS}
       - /tmp/.X11-unix:/tmp/.X11-unix

@@ -21,9 +21,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-realsense2-camera \
     ros-humble-vision-opencv \
     ros-humble-rmw-cyclonedds-cpp \
-    ros-humble-rqt ros-humble-rqt-image-view \
+    ros-humble-imu-filter-madgwick \
+    ros-humble-rtabmap-ros \
+    ros-humble-rviz2 \
     && rm -rf /var/lib/apt/lists/*
 
+# === Solo en PC (amd64): GUI tools (viewer/rqt/imshow) ===
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+    apt-get update && apt-get install -y --no-install-recommends \
+    ros-humble-rqt ros-humble-rqt-image-view \
+    libopencv-dev libgtk-3-0 libgl1-mesa-glx \
+    python3-matplotlib \
+    && rm -rf /var/lib/apt/lists/* ; \
+    fi
 # === SOLO Raspi (arm64): build librealsense en /usr/local ===
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
     apt-get update && apt-get install -y --no-install-recommends \

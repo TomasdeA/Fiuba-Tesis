@@ -3,7 +3,7 @@
 <package format="3">
   <name>nav_bringup</name>
   <version>0.0.1</version>
-  <description>Bringup launch files for nav_mapper (realsense + depth_to_matrix + optional hw/viz).</description>
+  <description>Bringup launch files for the complete navigation pipeline.</description>
   <maintainer email="dev@todo.todo">dev</maintainer>
   <license>TODO: License declaration</license>
 
@@ -12,7 +12,9 @@
   <depend>ament_index_python</depend>
 
   <exec_depend>realsense2_camera</exec_depend>
+  <exec_depend>local_mapper</exec_depend>
   <exec_depend>depth_grid_encoder</exec_depend>
+  <exec_depend>haptic_grid_generator</exec_depend>
   <exec_depend>hardware_manager</exec_depend>
   <exec_depend>output_viewer</exec_depend>
 

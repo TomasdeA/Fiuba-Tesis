@@ -1,0 +1,158 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /CameraFrame1
+        - /GravityAlignedFrame1
+      Splitter Ratio: 0.5
+  - Class: rviz_common/Views
+    Name: Views
+
+Visualization Manager:
+  Class: ""
+  Displays:
+
+    - Class: rviz_default_plugins/PointCloud2
+      Name: DepthCloud
+      Enabled: false
+      Topic:
+        Value: /local_mapper/debug/depth_cloud
+        Depth: 5
+        Reliability Policy: Best Effort
+      Style: Points
+      Size (Pixels): 3
+      Color Transformer: AxisColor
+      Axis: Z
+      Autocompute Value Bounds: true
+      Alpha: 0.5
+      Decay Time: 0
+
+    - Class: rviz_default_plugins/PointCloud2
+      Name: RawCloud
+      Enabled: false
+      Topic:
+        Value: /local_mapper/debug/raw_cloud
+        Depth: 5
+        Reliability Policy: Best Effort
+      Style: Points
+      Size (Pixels): 2
+      Color Transformer: AxisColor
+      Axis: Z
+      Autocompute Value Bounds: true
+      Alpha: 0.4
+      Decay Time: 0
+
+    - Class: rviz_default_plugins/PointCloud2
+      Name: GroundCloud
+      Enabled: true
+      Topic:
+        Value: /local_mapper/debug/ground_cloud
+        Depth: 5
+        Reliability Policy: Best Effort
+      Style: Points
+      Size (Pixels): 4
+      Color Transformer: Flat Color
+      Color: 0; 204; 51
+      Alpha: 1.0
+      Decay Time: 0
+
+    - Class: rviz_default_plugins/PointCloud2
+      Name: ObstacleCloud
+      Enabled: true
+      Topic:
+        Value: /local_mapper/debug/obstacle_cloud
+        Depth: 5
+        Reliability Policy: Best Effort
+      Style: Points
+      Size (Pixels): 3
+      Color Transformer: AxisColor
+      Axis: Y
+      Autocompute Value Bounds: true
+      Alpha: 0.5
+      Decay Time: 0
+
+    - Class: rviz_default_plugins/PointCloud2
+      Name: CeilingCloud
+      Enabled: false
+      Topic:
+        Value: /local_mapper/debug/ceiling_cloud
+        Depth: 5
+        Reliability Policy: Best Effort
+      Style: Points
+      Size (Pixels): 3
+      Color Transformer: Flat Color
+      Color: 26; 153; 255
+      Alpha: 0.6
+      Decay Time: 0
+
+    - Class: rviz_default_plugins/Axes
+      Name: CameraFrame
+      Enabled: true
+      Reference Frame: camera_depth_optical_frame
+      Length: 0.5
+      Radius: 0.03
+
+    - Class: rviz_default_plugins/Axes
+      Name: GravityAlignedFrame
+      Enabled: true
+      Reference Frame: gravity_aligned_frame
+      Length: 0.5
+      Radius: 0.03
+
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+      Reference Frame: gravity_aligned_frame
+      Plane: XY
+      Cell Size: 0.5
+      Line Style: Lines
+      Color:
+        R: 0.5
+        G: 0.5
+        B: 0.5
+        A: 1.0
+      Normal Cell Count: 0
+      Plane Cell Count: 10
+      Alpha: 0.4
+
+    - Class: rviz_default_plugins/Image
+      Name: ColorImage
+      Enabled: true
+      Topic:
+        Value: /camera/camera/color/image_raw
+        Depth: 5
+        Reliability Policy: Best Effort
+      Max Value: 1.0
+      Min Value: 0.0
+      Normalize Range: true
+
+  Global Options:
+    Background Color: 40; 40; 40
+    Fixed Frame: gravity_aligned_frame
+    Frame Rate: 30
+
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Name: Orbit
+      Distance: 4.5
+      Focal Point:
+        X: 0.0
+        Y: 0.0
+        Z: 2.0
+      Yaw: 4.7144
+      Pitch: -1.5698
+      Focal Shape Size: 0.05
+      Near Clip Distance: 0.01
+
+Window Geometry:
+  Width: 1400
+  Height: 850
+  Displays:
+    collapsed: false
+  Views:
+    collapsed: false

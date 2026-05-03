@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
+from custom_interfaces.msg import DepthGrid
+
+import matplotlib.pyplot as plt
+import numpy as np
+
 import rclpy
 from rclpy.node import Node
-
-import numpy as np
-import matplotlib.pyplot as plt
-
-from custom_interfaces.msg import DepthGrid
 
 
 def extract_distance_and_count(msg: DepthGrid):
@@ -17,7 +17,7 @@ def extract_distance_and_count(msg: DepthGrid):
     cnt = np.array([int(c.count) for c in msg.cells], dtype=np.int32)
 
     if d.size != rows * cols:
-        raise RuntimeError(f"Tamaño inconsistente: rows*cols={rows*cols} pero llegó {d.size}")
+        raise RuntimeError(f'Tamaño inconsistente: rows*cols={rows*cols} pero llegó {d.size}')
 
     return d.reshape((rows, cols)), cnt.reshape((rows, cols))
 
@@ -29,22 +29,23 @@ def distance_to_intensity(d_m: np.ndarray, z_min: float, z_max: float) -> np.nda
 
 
 class DepthGridHeatmapNode(Node):
+
     def __init__(self):
-        super().__init__("depth_grid_heatmap")
+        super().__init__('depth_grid_heatmap')
 
-        self.declare_parameter("topic", "/depth_grid")
-        self.declare_parameter("z_min", 0.6)
-        self.declare_parameter("z_max", 4.0)
-        self.declare_parameter("show_values", True)
-        self.declare_parameter("invalid_text", "--")
-        self.declare_parameter("refresh_hz", 20.0)  # refresco del plot
+        self.declare_parameter('topic', '/perception/depth_grid')
+        self.declare_parameter('z_min', 0.6)
+        self.declare_parameter('z_max', 4.0)
+        self.declare_parameter('show_values', True)
+        self.declare_parameter('invalid_text', '--')
+        self.declare_parameter('refresh_hz', 20.0)
 
-        self.topic = str(self.get_parameter("topic").value)
-        self.z_min = float(self.get_parameter("z_min").value)
-        self.z_max = float(self.get_parameter("z_max").value)
-        self.show_values = bool(self.get_parameter("show_values").value)
-        self.invalid_text = str(self.get_parameter("invalid_text").value)
-        self.refresh_hz = float(self.get_parameter("refresh_hz").value)
+        self.topic = str(self.get_parameter('topic').value)
+        self.z_min = float(self.get_parameter('z_min').value)
+        self.z_max = float(self.get_parameter('z_max').value)
+        self.show_values = bool(self.get_parameter('show_values').value)
+        self.invalid_text = str(self.get_parameter('invalid_text').value)
+        self.refresh_hz = float(self.get_parameter('refresh_hz').value)
 
         self.sub = self.create_subscription(DepthGrid, self.topic, self.cb, 10)
 
@@ -62,18 +63,19 @@ class DepthGridHeatmapNode(Node):
         self.texts = []
         self._closing = False
 
-        self.ax.set_title(f"Heatmap intensidades (rojo=cerca): {self.topic}")
-        self.ax.set_xlabel("col")
-        self.ax.set_ylabel("row")
+        self.ax.set_title(f'Heatmap intensidades (rojo=cerca): {self.topic}')
+        self.ax.set_xlabel('col')
+        self.ax.set_ylabel('row')
 
-        self.fig.canvas.mpl_connect("close_event", self._on_close)
+        self.fig.canvas.mpl_connect('close_event', self._on_close)
 
         # Timer ROS para refrescar el plot
         period = 1.0 / max(self.refresh_hz, 1.0)
         self.timer = self.create_timer(period, self.on_timer)
 
         self.get_logger().info(
-            f"Escuchando {self.topic} | z_min={self.z_min}m z_max={self.z_max}m | refresh={self.refresh_hz}Hz"
+            f'Escuchando {self.topic} | z_min={self.z_min}m '
+            f'z_max={self.z_max}m | refresh={self.refresh_hz}Hz'
         )
 
     def _on_close(self, _evt):
@@ -104,7 +106,7 @@ class DepthGridHeatmapNode(Node):
         try:
             d_m, cnt = extract_distance_and_count(msg)
         except Exception as e:
-            self.get_logger().error(f"No pude parsear DepthGrid: {e}")
+            self.get_logger().error(f'No pude parsear DepthGrid: {e}')
             return
 
         # celdas sin puntos -> lejos
@@ -131,18 +133,18 @@ class DepthGridHeatmapNode(Node):
         try:
             if self.im is None or self.im.get_array().shape != m.shape:
                 self.ax.clear()
-                self.ax.set_title(f"Heatmap intensidades (rojo=cerca): {self.topic}")
-                self.ax.set_xlabel("col")
-                self.ax.set_ylabel("row")
+                self.ax.set_title(f'Heatmap intensidades (rojo=cerca): {self.topic}')
+                self.ax.set_xlabel('col')
+                self.ax.set_ylabel('row')
 
                 self.im = self.ax.imshow(
                     m,
                     vmin=0.0,
                     vmax=100.0,
-                    cmap="RdBu_r",
-                    interpolation="nearest",
-                    aspect="equal",
-                    origin="upper",
+                    cmap='RdBu_r',
+                    interpolation='nearest',
+                    aspect='equal',
+                    origin='upper',
                 )
 
                 self._setup_axes_ticks(rows, cols)
@@ -164,9 +166,9 @@ class DepthGridHeatmapNode(Node):
                             txt = self.invalid_text
                         else:
                             v = m[r, c]
-                            txt = self.invalid_text if not np.isfinite(v) else f"{int(round(v))}"
+                            txt = self.invalid_text if not np.isfinite(v) else f'{int(round(v))}'
                         self.texts.append(
-                            self.ax.text(c, r, txt, ha="center", va="center", fontsize=9)
+                            self.ax.text(c, r, txt, ha='center', va='center', fontsize=9)
                         )
             else:
                 if self.texts:
@@ -181,7 +183,7 @@ class DepthGridHeatmapNode(Node):
         except Exception as e:
             # Si está cerrándose la ventana, evitamos spam de errores
             if not self._closing:
-                self.get_logger().warn(f"Error dibujando heatmap: {e}")
+                self.get_logger().warn(f'Error dibujando heatmap: {e}')
 
 
 def main():
@@ -212,5 +214,5 @@ def main():
             pass
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

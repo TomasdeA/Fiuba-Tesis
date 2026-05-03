@@ -15,7 +15,7 @@ setup(
     zip_safe=True,
     maintainer='dev',
     maintainer_email='dev@todo.todo',
-    description="Visualizador heatmap para /depth_grid",
+    description='Visualizador heatmap para /depth_grid',
     license='TODO: License declaration',
     extras_require={
         'test': [
@@ -24,7 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            "depth_grid_heatmap = output_viewer.output_viewer_node:main",
+            'depth_grid_heatmap = output_viewer.output_viewer_node:main',
         ],
     },
 )
