@@ -79,6 +79,15 @@ VisualOdometryResult RgbdTracker::process(const ColorFrame& frame)
     std::vector<uchar>       lk_status;
     std::vector<float>       lk_err;
 
+    // Guard: si prev_pts_ está vacío el assert de LK falla
+    if (prev_pts_.empty()) {
+        left_img.copyTo(prev_left_);
+        detectFeatures(prev_left_, prev_pts_);
+        prev_pts3d_ = liftFromDepth(prev_pts_, prev_pts_);
+        initialized_ = !prev_pts_.empty();
+        return result;
+    }
+
     const cv::Size lk_win(cfg_.lk_window_size, cfg_.lk_window_size);
     cv::calcOpticalFlowPyrLK(
         prev_left_, left_img,
