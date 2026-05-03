@@ -88,7 +88,7 @@ RUN echo "source /opt/ros/humble/setup.bash" >> /etc/bash.bashrc && \
     echo "export PATH=/usr/local/bin:\$PATH" >> /etc/bash.bashrc && \
     echo "export LD_LIBRARY_PATH=/usr/local/lib:\$LD_LIBRARY_PATH" >> /etc/bash.bashrc
 ENV RUNNING_IN_CONTAINER=1
-RUN echo '[ -f /workspaces/tesis_nav_assistant_ws/tools/dev/context_env.sh ] && source /workspaces/tesis_nav_assistant_ws/tools/dev/context_env.sh' >> /etc/bash.bashrc
+RUN echo '[ -n "$WS_PATH" ] && [ -f "$WS_PATH/tools/dev/context_env.sh" ] && source "$WS_PATH/tools/dev/context_env.sh"' >> /etc/bash.bashrc
 
 WORKDIR /workspaces/tesis_nav_assistant_ws
 USER $USERNAME
