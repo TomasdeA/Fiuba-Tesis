@@ -13,7 +13,7 @@ def extract_distance_and_count(msg: DepthGrid):
     rows = int(msg.rows)
     cols = int(msg.cols)
 
-    d = np.array([float(c.mean_m) for c in msg.cells], dtype=np.float32)
+    d = np.array([float(c.min_m) for c in msg.cells], dtype=np.float32)
     cnt = np.array([int(c.count) for c in msg.cells], dtype=np.int32)
 
     if d.size != rows * cols:
