@@ -2,30 +2,30 @@
 Description=Nav Mapper — ROS2 perception + haptic feedback stack
 Documentation=https://github.com/your-repo/nav_mapper
 # Esperar a que el sistema de red esté disponible (necesario para DDS/ROS2)
-After=network.target
+After=network.target docker.service
+Requires=docker.service
 # Si el controlador GPIO tiene su propio servicio separado, no hace falta
 # listarlo aquí porque ya se lanza desde nav.launch.py con use_gpio_recorder=true
 
 [Service]
 # ── Usuario ────────────────────────────────────────────────────────────────
-User=pi
-Group=pi
+User=tomasdea
+Group=tomasdea
 
 # ── Variables de entorno ───────────────────────────────────────────────────
-Environment="HOME=/home/pi"
+Environment="HOME=/home/tomasdea"
 Environment="ROS_DOMAIN_ID=0"
 # WS_PATH es usado por nav.launch.py para localizar el config de parámetros
-Environment="WS_PATH=/home/pi/nav_mapper"
+Environment="WS_PATH=/home/tomasdea/Tesis/develop/Fiuba-Tesis"
 
 # ── Comando de arranque ────────────────────────────────────────────────────
-# Se usa bash -c para poder hacer source de los setups de ROS2 y del workspace.
-# Ajustá la ruta si tu workspace no está en /home/pi/nav_mapper.
-ExecStart=/bin/bash -c '\
-  source /opt/ros/humble/setup.bash && \
-  source /home/pi/nav_mapper/install/setup.bash && \
-  exec ros2 launch nav_bringup nav.launch.py \
-       use_hw:=true \
-       use_gpio_recorder:=true'
+# Levanta un contenedor efímero (--rm) con docker-compose.raspi.yml.
+# bash -l sourcea /etc/profile.d/context.sh (montado en el compose),
+# que a su vez sourcea ROS2 y el workspace — equivalente a tesis-run.
+ExecStart=/usr/bin/docker compose \
+  -f ${WS_PATH}/docker-compose.raspi.yml \
+  run --rm dev \
+  bash -lc 'exec ros2 launch nav_bringup nav.launch.py use_hw:=false use_gpio_recorder:=false'
 
 # ── Política de reinicio ───────────────────────────────────────────────────
 # Se reinicia automáticamente si el proceso termina con error.
