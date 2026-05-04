@@ -105,10 +105,11 @@ private:
                 const int c = static_cast<int>((px - x_min_) / x_range * cols);
                 if (c < 0 || c >= cols) continue;
 
-                // Mapear Y → fila
+                // Mapear Y → fila (invertido: Y crece hacia abajo, fila 0 = suelo/y_max)
                 if (py < y_min_ || py >= y_max_) continue;
-                const int r = static_cast<int>((py - y_min_) / y_range * rows);
-                if (r < 0 || r >= rows) continue;
+                const int r_raw = static_cast<int>((py - y_min_) / y_range * rows);
+                if (r_raw < 0 || r_raw >= rows) continue;
+                const int r = (rows - 1) - r_raw;
 
                 const int idx = r * cols + c;
                 if (pz < z_min[idx]) z_min[idx] = pz;
