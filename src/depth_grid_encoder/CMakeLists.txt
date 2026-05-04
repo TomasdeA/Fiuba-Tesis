@@ -19,7 +19,7 @@ find_package(std_msgs REQUIRED)
 find_package(custom_interfaces REQUIRED)
 
 # ── depth_to_matrix (pipeline raw: imagen de profundidad → grilla) ──────────
-add_executable(depth_to_matrix 
+add_executable(depth_to_matrix
     src/depth_to_matrix_node.cpp
     src/depth_utils.cpp
 )
@@ -29,9 +29,9 @@ target_include_directories(depth_to_matrix PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 
-ament_target_dependencies(depth_to_matrix 
-    rclcpp 
-    sensor_msgs 
+ament_target_dependencies(depth_to_matrix
+    rclcpp
+    sensor_msgs
     std_msgs
     custom_interfaces)
 
@@ -48,6 +48,7 @@ target_include_directories(obstacle_grid_encoder PUBLIC
 ament_target_dependencies(obstacle_grid_encoder
     rclcpp
     sensor_msgs
+    std_msgs
     custom_interfaces)
 
 # Instalation
@@ -60,7 +61,7 @@ install(DIRECTORY include/
 install(DIRECTORY config launch
   DESTINATION share/${PROJECT_NAME}
   OPTIONAL)
-  
+
 ament_export_include_directories(include)
 ament_export_dependencies(rclcpp sensor_msgs std_msgs)
 ament_package()

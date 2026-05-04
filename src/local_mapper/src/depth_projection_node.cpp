@@ -28,6 +28,7 @@
 #include <sensor_msgs/msg/point_field.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <std_msgs/msg/float32.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 
 #include "local_mapper/depth_projector.hpp"
@@ -85,6 +86,12 @@ class DepthProjectionNode : public rclcpp::Node {
 
     ceiling_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
         "/local_mapper/debug/ceiling_cloud", 10);
+
+    // Altura de la cámara sobre el suelo (calibración).
+    // Se publica por única vez salvo que el nuevo estimado difiera > 10 cm
+    // del último publicado (indica que la medición anterior fue errónea).
+    camera_height_pub_ = create_publisher<std_msgs::msg::Float32>(
+        "/local_mapper/camera_height", rclcpp::QoS(1).transient_local());
 
     // ── Suscriptores ─────────────────────────────────────────────────────────
     // El nodo usa nombres genéricos; el launch file remapea al hardware.
@@ -316,6 +323,25 @@ class DepthProjectionNode : public rclcpp::Node {
             ground_estimator_->perfStats().n_input);
       }
 
+      // ── Publicación de altura de cámara (calibración) ─────────────────────
+      // Solo se publica si el suelo fue detectado, la calidad es aceptable
+      // y el nuevo valor difiere en más de 10 cm del último publicado.
+      if (ground_ok && camera_height_pub_->get_subscription_count() > 0) {
+        const float h = ground_estimator_->cameraHeightM();
+        if (h > 0.5f && h < 2.5f) {  // rango plausible de altura humana
+          const float delta = std::abs(h - last_published_height_);
+          if (delta > 0.10f) {  // cambio mayor a 10 cm → publicar nueva calibración
+            std_msgs::msg::Float32 height_msg;
+            height_msg.data = h;
+            camera_height_pub_->publish(height_msg);
+            RCLCPP_INFO(get_logger(),
+                "[camera_height] %.3f m publicado (delta=%.3f m desde el anterior)",
+                h, delta);
+            last_published_height_ = h;
+          }
+        }
+      }
+
       const auto now = get_clock()->now();
       if (((now - last_perf_log_).seconds() >= 10.0) && false) {
         const auto& a = perf_accum_;
@@ -443,6 +469,10 @@ class DepthProjectionNode : public rclcpp::Node {
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr ground_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr obstacle_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr ceiling_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr         camera_height_pub_;
+
+  // Última altura publicada (inicializado a 0 para forzar la primera publicación)
+  float last_published_height_ = 0.0f;
 
   float  range_min_m_ = 0.1f;
   float  range_max_m_ = 5.0f;

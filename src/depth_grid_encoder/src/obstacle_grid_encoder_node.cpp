@@ -1,6 +1,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
+#include <std_msgs/msg/float32.hpp>
 #include <chrono>
 #include <cmath>
 #include <limits>
@@ -18,9 +19,13 @@ using namespace std::chrono_literals;
 //
 // Eje Y: origen en la cámara (montada en la cabeza del usuario).
 //   y_min = -0.20 m  (guardia de seguridad — el obstacle_cloud ya tiene techo removido)
-//   y_max =  2.20 m  (guardia de seguridad — el obstacle_cloud ya tiene suelo removido)
+//   y_max = se actualiza desde /local_mapper/camera_height (calibración de altura).
+//           Valor inicial conservador de 2.20 m hasta recibir la primera calibración.
 // El obstacle_cloud ya tiene el suelo y el techo removidos por local_mapper;
 // estos límites actúan únicamente como guardia ante puntos espurios.
+//
+// Métrica de distancia: sqrt(x² + z²) — distancia radial en el plano XZ al cuerpo.
+// Se evita z puro para no subestimar obstáculos en celdas laterales.
 class ObstacleGridEncoder : public rclcpp::Node
 {
 public:
@@ -37,10 +42,23 @@ public:
         x_min_ = static_cast<float>(this->declare_parameter<double>("x_min_m", -3.0));
         x_max_ = static_cast<float>(this->declare_parameter<double>("x_max_m",  3.0));
 
-        // Y: constantes fijas de seguridad. El obstacle_cloud ya viene sin suelo ni techo
-        // (removidos por local_mapper); estos límites solo descartan puntos espurios.
-        y_min_ = -0.20f;   // 20 cm por encima de la cámara
-        y_max_ =  2.20f;   // 2.2 m por debajo de la cámara
+        // Y: límites de seguridad. y_max se actualiza al recibir la altura de la cámara
+        // publicada por local_mapper tras la calibración inicial.
+        y_min_ = -0.20f;  // 20 cm por encima de la cámara (guardia fija)
+        y_max_ =  2.20f;  // conservador hasta recibir /local_mapper/camera_height
+
+        height_sub_ = this->create_subscription<std_msgs::msg::Float32>(
+            "/local_mapper/camera_height",
+            rclcpp::QoS(1).transient_local(),
+            [this](std_msgs::msg::Float32::SharedPtr msg) {
+                const float new_y_max = msg->data + 0.10f;  // +10 cm margen bajo el suelo
+                if (std::abs(new_y_max - y_max_) > 0.01f) {
+                    y_max_ = new_y_max;
+                    RCLCPP_INFO(get_logger(),
+                        "[camera_height] altura=%.3f m -> y_max=%.3f m",
+                        msg->data, y_max_);
+                }
+            });
 
         cloud_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
             cloud_topic_, rclcpp::SensorDataQoS(),
@@ -97,7 +115,7 @@ private:
                 // Descartar puntos con coordenadas inválidas (NaN/Inf)
                 if (!std::isfinite(px) || !std::isfinite(py) || !std::isfinite(pz)) continue;
 
-                // Filtro de profundidad
+                // Filtro sobre Z (profundidad frontal)
                 if (pz < cfg_.z_min_m || pz > cfg_.z_max_m) continue;
 
                 // Mapear X →  columna
@@ -112,9 +130,11 @@ private:
                 const int r = (rows - 1) - r_raw;
 
                 const int idx = r * cols + c;
-                if (pz < z_min[idx]) z_min[idx] = pz;
-                if (pz > z_max[idx]) z_max[idx] = pz;
-                z_sum[idx] += pz;
+                // Distancia radial en plano XZ: distancia real de colisión al cuerpo
+                const float dist = std::sqrt(px * px + pz * pz);
+                if (dist < z_min[idx]) z_min[idx] = dist;
+                if (dist > z_max[idx]) z_max[idx] = dist;
+                z_sum[idx] += dist;
                 ++z_cnt[idx];
             }
         } catch (const std::runtime_error & e) {
@@ -161,6 +181,7 @@ private:
     size_t cloud_count_ = 0;
 
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
+    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr         height_sub_;
     rclcpp::Publisher<custom_interfaces::msg::DepthGrid>::SharedPtr grid_pub_;
     rclcpp::TimerBase::SharedPtr heartbeat_;
 };
