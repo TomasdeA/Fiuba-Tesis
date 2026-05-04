@@ -4,8 +4,8 @@ obstacle_grid_encoder:
     rows: 5
     cols: 10
     # Guardia de seguridad en X (metros) — descarta puntos espurios fuera del rango
-    x_min_m: -3.0
-    x_max_m:  3.0
+    x_min_m: -1.0
+    x_max_m:  1.0
     # Y fijo en el nodo: [-0.20, 2.20] m (el obstacle_cloud ya viene sin suelo ni techo)
     # Filtro de profundidad Z (hacia adelante, metros)
     z_min_m: 0.25
