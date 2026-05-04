@@ -18,7 +18,7 @@ find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(custom_interfaces REQUIRED)
 
-# Principal executable
+# ── depth_to_matrix (pipeline raw: imagen de profundidad → grilla) ──────────
 add_executable(depth_to_matrix 
     src/depth_to_matrix_node.cpp
     src/depth_utils.cpp
@@ -35,8 +35,23 @@ ament_target_dependencies(depth_to_matrix
     std_msgs
     custom_interfaces)
 
+# ── obstacle_grid_encoder (pipeline filtered: ObstacleCloud → grilla) ───────
+add_executable(obstacle_grid_encoder
+    src/obstacle_grid_encoder_node.cpp
+)
+
+target_include_directories(obstacle_grid_encoder PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+ament_target_dependencies(obstacle_grid_encoder
+    rclcpp
+    sensor_msgs
+    custom_interfaces)
+
 # Instalation
-install(TARGETS depth_to_matrix
+install(TARGETS depth_to_matrix obstacle_grid_encoder
     RUNTIME DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY include/

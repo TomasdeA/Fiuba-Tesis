@@ -12,6 +12,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
     LaunchConfiguration,
     PathJoinSubstitution,
+    PythonExpression,
 )
 
 from launch_ros.actions import Node
@@ -26,12 +27,19 @@ def generate_launch_description():
     use_rviz           = LaunchConfiguration('use_rviz')
     use_gpio_recorder  = LaunchConfiguration('use_gpio_recorder')
     hw_port            = LaunchConfiguration('hw_port')
+    pipeline_mode      = LaunchConfiguration('pipeline_mode')
 
     # ── Config file paths ─────────────────────────────────
     depth_to_matrix_cfg = PathJoinSubstitution([
         FindPackageShare('depth_grid_encoder'),
         'config',
         'depth_to_matrix.yaml',
+    ])
+
+    obstacle_grid_cfg = PathJoinSubstitution([
+        FindPackageShare('depth_grid_encoder'),
+        'config',
+        'obstacle_grid_encoder.yaml',
     ])
 
     #haptic_grid_cfg = PathJoinSubstitution([
@@ -107,7 +115,8 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(depth_projection_launch),
     )
 
-    # ── Depth-to-matrix encoder (depth grid) ──────────────
+    # ── Depth-to-matrix encoder (pipeline: raw) ───────────
+    # Activo solo cuando pipeline_mode == 'raw' (default)
     depth_to_matrix = Node(
         package='depth_grid_encoder',
         executable='depth_to_matrix',
@@ -116,9 +125,24 @@ def generate_launch_description():
             LaunchConfiguration('params_file'),
         ],
         output='screen',
+        condition=IfCondition(PythonExpression(["'", pipeline_mode, "' == 'raw'"])),
         remappings=[
             ('depth/image', '/camera/camera/depth/image_rect_raw'),
         ],
+    )
+
+    # ── Obstacle grid encoder (pipeline: filtered) ────────
+    # Activo solo cuando pipeline_mode == 'filtered'
+    # Convierte ObstacleCloud (PointCloud2 con ground removal) → DepthGrid
+    obstacle_grid = Node(
+        package='depth_grid_encoder',
+        executable='obstacle_grid_encoder',
+        name='obstacle_grid_encoder',
+        parameters=[
+            obstacle_grid_cfg,
+        ],
+        output='screen',
+        condition=IfCondition(PythonExpression(["'", pipeline_mode, "' == 'filtered'"])),
     )
 
     # ── Haptic grid generator ─────────────────────────────
@@ -211,12 +235,22 @@ def generate_launch_description():
             default_value=depth_to_matrix_cfg,
             description='Path to depth_to_matrix params YAML',
         ),
+        DeclareLaunchArgument(
+            'pipeline_mode',
+            default_value='raw',
+            description=(
+                "Modo de la pipeline de encodificación de grilla: "
+                "'raw' usa depth_to_matrix (imagen de profundidad directa), "
+                "'filtered' usa obstacle_grid_encoder (ObstacleCloud con ground removal)"
+            ),
+        ),
 
         # Nodes — in pipeline order
         *realsense_actions,
         nav_odometry,
         depth_projection,
         depth_to_matrix,
+        obstacle_grid,
         #haptic_grid,
         hw_manager,
         viz,

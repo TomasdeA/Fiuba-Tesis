@@ -9,7 +9,7 @@
 //   /local_mapper/debug/depth_cloud    — nube cruda (camera_depth_optical_frame, alineada vía TF)
 //   /local_mapper/debug/raw_cloud      — nube cruda sin rotar (gravity_aligned_frame, oscila al inclinar)
 //   /local_mapper/debug/ground_cloud   — suelo detectado (gravity_aligned_frame)
-//   /local_mapper/debug/obstacle_cloud — obstáculos sobre el suelo (gravity_aligned_frame)
+//   /local_mapper/obstacle_cloud       — obstáculos sobre el suelo (gravity_aligned_frame)
 //   /local_mapper/debug/ceiling_cloud  — techo descartado (gravity_aligned_frame)
 //
 // depth_cloud y raw_cloud tienen los mismos puntos: depth_cloud se ve estático
@@ -81,7 +81,7 @@ class DepthProjectionNode : public rclcpp::Node {
         "/local_mapper/debug/ground_cloud", 10);
 
     obstacle_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
-        "/local_mapper/debug/obstacle_cloud", 10);
+        "/local_mapper/obstacle_cloud", 10);
 
     ceiling_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
         "/local_mapper/debug/ceiling_cloud", 10);
