@@ -42,7 +42,7 @@ nav_odometry:
 
     # Número máximo de puntos rastreados por frame.
     #   100–500: equilibrio entre robustez y latencia.
-    max_features: 300
+    max_features: 100
 
     # Distancia mínima entre features detectadas [px].
     min_feature_dist_px: 15.0

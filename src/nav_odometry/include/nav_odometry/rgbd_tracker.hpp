@@ -29,7 +29,7 @@ public:
         // Detector FAST: umbral para la puntuación de esquina.
         int fast_threshold{20};
         // Número máximo de puntos rastreados por frame.
-        int max_features{300};
+        int max_features{100};
         // Distancia mínima entre puntos detectados (px) para distribuirlos.
         float min_feature_dist_px{15.f};
         // Umbral de error de reproyección para RANSAC del PnP [px].
