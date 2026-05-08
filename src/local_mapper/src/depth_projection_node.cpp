@@ -230,7 +230,7 @@ class DepthProjectionNode : public rclcpp::Node {
   void onDepth(const sensor_msgs::msg::Image::SharedPtr msg) {
     if (!projector_) return;
 
-    if (msg->encoding != "16UC1" && msg->encoding != "mono16") {
+    if (msg->encoding != "16UC1") {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
           "Encoding inesperado: %s (se espera 16UC1)", msg->encoding.c_str());
       return;

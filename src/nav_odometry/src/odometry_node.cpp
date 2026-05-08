@@ -6,7 +6,7 @@
 // Suscribe (nombres genéricos; el launch file remapea al hardware):
 //   gyro          --> sensor_msgs/Imu   (~200 Hz, solo angular_velocity)
 //   accel         --> sensor_msgs/Imu   (~100 Hz, solo linear_acceleration)
-//   color         --> sensor_msgs/Image  (~30 fps, bgr8)
+//   color         --> sensor_msgs/Image  (~30 fps, rgb8)
 //   camera_info   --> sensor_msgs/CameraInfo (latched)
 //   depth         --> sensor_msgs/Image  (~30 fps, 16UC1, aligned_depth_to_color)
 //
@@ -273,32 +273,25 @@ private:
     {
         if (!intrinsics_set_) return;
 
-        // Convertir bgr8 --> mono8 para el tracker (FAST+LK operan en gris)
-        const uint8_t* gray_ptr = nullptr;
-        std::vector<uint8_t> gray_buf;
-
-        if (color_msg->encoding == "mono8") {
-            gray_ptr = color_msg->data.data();
-        } else if (color_msg->encoding == "bgr8" || color_msg->encoding == "rgb8") {
-            const std::size_t npix = color_msg->width * color_msg->height;
-            gray_buf.resize(npix);
-            const uint8_t* src = color_msg->data.data();
-            const bool is_bgr = (color_msg->encoding == "bgr8");
-            for (std::size_t i = 0; i < npix; ++i) {
-                const uint8_t b = src[3*i + (is_bgr ? 0 : 2)];
-                const uint8_t g = src[3*i + 1];
-                const uint8_t r = src[3*i + (is_bgr ? 2 : 0)];
-                // BT.601 luma: 0.299R + 0.587G + 0.114B (enteros para velocidad)
-                gray_buf[i] = static_cast<uint8_t>(
-                    (77u*r + 150u*g + 29u*b) >> 8u);
-            }
-            gray_ptr = gray_buf.data();
-        } else {
+        // Convertir rgb8 --> mono8 para el tracker (FAST+LK operan en gris)
+        // El D435i publica siempre rgb8; se asume ese encoding.
+        if (color_msg->encoding != "rgb8") {
             RCLCPP_WARN_ONCE(get_logger(),
-                "Encoding de imagen no soportado: %s. Se esperaba bgr8/rgb8/mono8.",
+                "Encoding inesperado: %s (se espera rgb8).",
                 color_msg->encoding.c_str());
             return;
         }
+        const std::size_t npix = color_msg->width * color_msg->height;
+        std::vector<uint8_t> gray_buf(npix);
+        const uint8_t* src = color_msg->data.data();
+        for (std::size_t i = 0; i < npix; ++i) {
+            const uint8_t r = src[3*i + 0];
+            const uint8_t g = src[3*i + 1];
+            const uint8_t b = src[3*i + 2];
+            // BT.601 luma: 0.299R + 0.587G + 0.114B (enteros para velocidad)
+            gray_buf[i] = static_cast<uint8_t>((77u*r + 150u*g + 29u*b) >> 8u);
+        }
+        const uint8_t* gray_ptr = gray_buf.data();
 
         nav_odometry::ColorFrame color_frame;
         color_frame.timestamp_s = toSec(color_msg->header.stamp);

@@ -19,20 +19,20 @@ bool compute_16UC1( const sensor_msgs::msg::Image& msg,
     const size_t n_elems = msg.data.size() / sizeof(uint16_t);  // elements in buffer
 
     if (stride * h > n_elems) return false;
-    
+
     const auto* p = reinterpret_cast<const uint16_t*>(msg.data.data()); // pointer to raw image bytes
-    
+
     const int cx = static_cast<int>(w) / 2; // floor(w/2)
     const int cy = static_cast<int>(h) / 2; // floor(h/2)
-    
+
     out = DepthStats{}; //NaN en todos los floats, cnt=0
-    
+
     const size_t idxc = static_cast<size_t>(cy) * stride + cx; // center idx
 
     if(idxc < n_elems){
         // idxc inside of the buffer, safe to read. stride * h is the total number of elements
         const uint16_t raw = p[idxc];
-        if(raw > 0) out.center_m =static_cast<float>(raw / 1000.0f); 
+        if(raw > 0) out.center_m =static_cast<float>(raw / 1000.0f);
     }
     //else -> center_m = NaN (soft-fail)
 
@@ -81,21 +81,16 @@ bool compute_16UC1( const sensor_msgs::msg::Image& msg,
     }
     return true;
 }
-/*
-bool compute_32FC1( const sensor_msgs::msg::Image& msg,
-                    const RoiConfig& cfg,
-                    DepthStats& out){
-    return false;
-}
-*/
+
 bool compute_depth_stats(   const sensor_msgs::msg::Image& msg,
                             const GridConfig& cfg,
                             DepthGrid& out)
 {
-    if (msg.encoding == "16UC1") return compute_16UC1(msg, cfg, out);
-    //if (msg.encoding == "32FC1") return compute_32FC1(msg, cfg, out);
-    out = DepthGrid{};
-    return false; // encoding no soportado
+    if (msg.encoding != "16UC1") {
+        out = DepthGrid{};
+        return false;
+    }
+    return compute_16UC1(msg, cfg, out);
 }
 
 }
