@@ -1,0 +1,79 @@
+nav_odometry:
+  ros__parameters:
+
+    # ── Topics del hardware ──────────────────────────────────────────────────
+    # El launch file remapea estos a los nombres genéricos del nodo
+    # (gyro, accel, color, camera_info, depth).
+    # Se usa la imagen color + aligned_depth_to_color para evitar artefactos
+    # del proyector IR en la detección de features FAST.
+    gyro_topic:         "/camera/camera/gyro/sample"
+    accel_topic:        "/camera/camera/accel/sample"
+    color_topic:        "/camera/camera/color/image_raw"
+    camera_info_topic:  "/camera/camera/color/camera_info"
+    depth_topic:        "/camera/camera/aligned_depth_to_color/image_raw"
+
+    # ── Frames TF ────────────────────────────────────────────────────────────
+    odom_frame:  "odom"
+    child_frame: "camera_link"
+
+    # ── Filtro complementario de Mahony ──────────────────────────────────────
+    # kp_accel: ganancia proporcional de corrección de tilt por acelerómetro.
+    #   0.5–2.0: rango recomendado. Más alto = converge rápido pero con más ruido.
+    kp_accel: 10.0
+
+    # ki_accel: ganancia integral que elimina el offset DC de inclinación.
+    #   0.001–0.01: mantenerlo pequeño para estabilidad.
+    ki_accel: 0.01
+
+    # alpha_yaw: fracción de corrección de yaw aplicada por cada update visual.
+    #   0.05–0.20: más alto = sigue la visión más agresivamente.
+    alpha_yaw: 0.10
+
+    # min_visual_confidence: confianza mínima del tracker para aceptar corrección.
+    min_visual_confidence: 0.30
+
+    # Módulo de gravedad esperado [m/s^2].
+    gravity_magnitude: 9.807
+
+    # ── Tracker estéreo ───────────────────────────────────────────────────────
+    # Umbral de respuesta FAST para detección de esquinas.
+    #   5–40: más bajo detecta más features (más gasto CPU).
+    fast_threshold: 20
+
+    # Número máximo de puntos rastreados por frame.
+    #   100–500: equilibrio entre robustez y latencia.
+    max_features: 100
+
+    # Distancia mínima entre features detectadas [px].
+    min_feature_dist_px: 15.0
+
+    # Umbral de reproyección para RANSAC de la matriz esencial [px].
+    ransac_threshold_px: 1.0
+
+    # Ratio inliers/total mínimo para aceptar resultado de VO.
+    min_inlier_ratio: 0.50
+
+    # Número mínimo absoluto de inliers para aceptar resultado de VO.
+    min_inliers: 20
+
+    # Translación máxima plausible por frame [m].
+    # 0.3–0.5 para movimiento a pie; reducir para aplicaciones más lentas.
+    max_translation_m: 0.50
+
+    # Rango de profundidad válido [m].
+    depth_min_m: 0.25
+    depth_max_m: 5.0
+
+    # ── Estimador de odometría ────────────────────────────────────────────────
+    # Velocidad máxima plausible [m/s]. Estimaciones mayores se descartan.
+    max_velocity_mps: 3.0
+
+    # Factor de escala aplicado a la translación visual antes de integrar posición.
+    # 1.0 = confianza total en la escala estéreo.
+    translation_confidence_scale: 1.0
+
+    # ── Profundidad de hardware ───────────────────────────────────────────────
+    # aligned_depth_to_color: el driver realsense2_camera reproyecta el depth
+    # al frame de la cámara color. Extrínseca depth_to_color verificada:
+    # rotación ~= identidad, traslación ~= [15mm, 0, 0]. Factor raw->metros fijo.
+    depth_scale_m: 0.001

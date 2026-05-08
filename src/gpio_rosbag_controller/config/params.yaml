@@ -1,0 +1,64 @@
+# GPIO Rosbag Controller — ROS2 parameters
+# ─────────────────────────────────────────────────────────────────────────────
+# Copy this file to your workspace and pass it with:
+#   ros2 run gpio_rosbag_controller gpio_rosbag_controller_node \
+#       --ros-args --params-file /path/to/params.yaml
+
+gpio_rosbag_controller_node:
+  ros__parameters:
+
+    # ── GPIO hardware ─────────────────────────────────────────────────────────
+    # GPIO chip device. On all Raspberry Pi models this is "gpiochip0".
+    gpio_chip: "gpiochip0"
+
+    # BCM GPIO number for the physical switch/button (INPUT).
+    # Default: BCM 17 = physical pin 11.
+    # Wire with external 10kΩ pull-down to GND.
+    # Switch connects BCM 17 to 3.3V.
+    switch_gpio: 17
+
+    # BCM GPIO number for the LED (OUTPUT).
+    # Default: BCM 27 = physical pin 13.
+    # Wire: BCM 27 → 330Ω resistor → LED anode → LED cathode → GND.
+    led_gpio: 27
+
+    # ── Bag storage ───────────────────────────────────────────────────────────
+    # Directory where bags will be stored.
+    # The node creates it if it does not exist.
+    bag_output_dir: "~/bags"
+
+    # ── Debouncing ────────────────────────────────────────────────────────────
+    # How often (ms) to poll the GPIO switch.
+    poll_period_ms: 50
+
+    # Number of consecutive identical readings required to confirm a state
+    # change. With poll_period_ms=50 this gives a 250ms debounce window.
+    debounce_count: 5
+
+    # ── LED blink ─────────────────────────────────────────────────────────────
+    # Half-period of the blink in ms (LED flips every blink_period_ms).
+    # 500ms → 1 Hz blink (0.5s ON, 0.5s OFF).
+    blink_period_ms: 500
+
+    # ── Rosbag stop timeout ───────────────────────────────────────────────────
+    # Seconds to wait for rosbag to exit cleanly after SIGINT before SIGKILL.
+    stop_timeout_s: 10
+
+    # ── Topics to record ──────────────────────────────────────────────────────
+    # Only record topics relevant for offline VIO/depth analysis.
+    # Edit this list to add/remove topics without recompiling.
+    topics:
+      - "/camera/camera/aligned_depth_to_color/image_raw"
+      - "/camera/camera/aligned_depth_to_color/camera_info"
+      - "/camera/camera/color/image_raw"
+      - "/camera/camera/color/camera_info"
+      - "/camera/camera/accel/sample"
+      - "/camera/camera/gyro/sample"
+      - "/camera/camera/imu"
+      - "/camera/camera/accel/imu_info"
+      - "/camera/camera/gyro/imu_info"
+      - "/camera/camera/extrinsics/depth_to_color"
+      - "/camera/camera/extrinsics/depth_to_accel"
+      - "/camera/camera/extrinsics/depth_to_gyro"
+      - "/tf_static"
+      - "/rosout"

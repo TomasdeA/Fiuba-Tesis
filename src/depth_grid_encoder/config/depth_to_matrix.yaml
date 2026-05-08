@@ -4,7 +4,6 @@ depth_to_matrix:
     rows: 5
     cols: 10
     z_min_m: 0.25
-    z_max_m: 2.0
-    #metric: "min"        
-    #smoothing_alpha: 0.0   
-
+    z_max_m: 5.0
+    #metric: "min"
+    #smoothing_alpha: 0.0

@@ -1,0 +1,42 @@
+[Unit]
+Description=GPIO Rosbag Controller — ROS2 field recording via physical switch
+Documentation=https://github.com/your-repo/gpio_rosbag_controller
+After=network.target ros2-nav-stack.service
+# If you do NOT have a service for the main stack, remove the line above
+# and leave only: After=network.target
+
+[Service]
+# ── User / Environment ────────────────────────────────────────────────────────
+User=pi
+Group=pi
+
+# Source the ROS2 + workspace setup before launching the node.
+# Adjust paths if your workspace or ROS2 distro differ.
+Environment="HOME=/home/pi"
+Environment="ROS_DOMAIN_ID=0"
+
+# EnvironmentFile can be used to inject additional variables
+# EnvironmentFile=/home/pi/ros2_env.sh
+
+# ── Launch command ────────────────────────────────────────────────────────────
+# We use bash -c to source the ROS2 setup files first.
+ExecStart=/bin/bash -c '\
+  source /opt/ros/humble/setup.bash && \
+  source /home/pi/nav_mapper/install/setup.bash && \
+  exec ros2 launch gpio_rosbag_controller gpio_rosbag_controller.launch.py'
+
+# ── Restart policy ────────────────────────────────────────────────────────────
+# Restart the service if it crashes unexpectedly.
+Restart=on-failure
+RestartSec=5s
+
+# Give rosbag time to flush and close cleanly on shutdown.
+TimeoutStopSec=30s
+
+# ── Output ────────────────────────────────────────────────────────────────────
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gpio_rosbag_ctrl
+
+[Install]
+WantedBy=multi-user.target

@@ -1,5 +1,6 @@
 #include <rclcpp/rclcpp.hpp>
 #include <chrono>
+#include <cstdlib>
 #include <sensor_msgs/msg/image.hpp>
 #include <std_msgs/msg/float32.hpp>
 #include "depth_grid_encoder/depth_utils.hpp"
@@ -33,7 +34,7 @@ public:
 
         heartbeat_ = this->create_wall_timer(
             1000ms, [this](){
-                RCLCPP_INFO(this->get_logger(),
+                RCLCPP_DEBUG(this->get_logger(),
                 "activo | suscrito a %s | imágenes recibidas: %zu",
                 depth_topic_.c_str(), image_count_);
             }
@@ -45,13 +46,15 @@ public:
     }
 
 private:
-    void onDepthImage(sensor_msgs::msg::Image::SharedPtr msg){
+    void onDepthImage(sensor_msgs::msg::Image::SharedPtr msg)
+    {
         image_count_++;
-
+        watchdog_stale_s_ = 0; // Reinicio de watchdog en cada frame
         custom_interfaces::msg::DepthGrid grid; // Salida
 
         const bool ok = tesis_nav::compute_depth_stats(*msg, grid_cfg_, grid);
-        if (!ok) {
+        if (!ok)
+        {
             RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
                                  "Fallo en cálculo de grilla de profundidad (encoding=%s)", msg->encoding.c_str());
             return;
@@ -63,10 +66,8 @@ private:
         RCLCPP_DEBUG_THROTTLE(
             this->get_logger(), *this->get_clock(), 1000,
             "img %ux%u enc=%s stamp=%u.%u",
-            msg->width,msg->height,msg->encoding.c_str(),
-            msg->header.stamp.sec, msg->header.stamp.nanosec
-        );
-
+            msg->width, msg->height, msg->encoding.c_str(),
+            msg->header.stamp.sec, msg->header.stamp.nanosec);
     }
 
     std::string depth_topic_;
@@ -74,17 +75,24 @@ private:
 
     size_t image_count_ = 0;
 
+    // Watchdog
+    int watchdog_timeout_s_{1};
+    int watchdog_stale_s_{0};
+    size_t watchdog_last_count_{0};
+    bool watchdog_fired_{false};
+
+    // Subscriptors
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr img_sub_;
 
     rclcpp::Publisher<custom_interfaces::msg::DepthGrid>::SharedPtr grid_pub_;
 
     rclcpp::TimerBase::SharedPtr heartbeat_;
+    rclcpp::TimerBase::SharedPtr watchdog_;
 };
 
-
-int main(int argc, char** argv)
+int main(int argc, char **argv)
 {
-    rclcpp::init(argc,argv);
+    rclcpp::init(argc, argv);
     auto node = std::make_shared<DepthToMatrix>();
     rclcpp::spin(node);
     rclcpp::shutdown();

@@ -3,7 +3,7 @@ FROM ros:humble-ros-base
 
 SHELL ["/bin/bash", "-c"]
 
-# Docker setea esto automáticamente (amd64 en PC, arm64 en Raspi)
+# Docker setea esto automaticamente (amd64 en PC, arm64 en Raspi)
 ARG TARGETARCH
 
 # === Base tools ===
@@ -12,13 +12,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-colcon-common-extensions python3-vcstool python3-argcomplete \
     build-essential cmake clang-format clang-tidy \
     python3-numpy python3-matplotlib \
-    # cv_bridge + image_geometry
-    ros-humble-rqt ros-humble-rqt-image-view \
-    # === OpenCV GUI (imshow) ===
     libopencv-dev libgtk-3-0 libgl1-mesa-glx \
+    libgpiod-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# === ROS & visión (común: PC + Raspi) ===
+# === ROS & vision (comun: PC + Raspi) ===
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-realsense2-camera \
     ros-humble-vision-opencv \
@@ -57,6 +55,7 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
     && ldconfig \
     && rm -rf /tmp/librealsense ; \
     fi
+
 # === SOLO Raspi (arm64): forzar que el wrapper de ROS use la librealsense nueva ===
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
     set -e; \
@@ -79,9 +78,17 @@ RUN groupadd --gid $USER_GID $USERNAME \
     && echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
 # === Shell init ===
-RUN echo "source /opt/ros/humble/setup.bash" >> /etc/bash.bashrc
+# /usr/local/bin y /usr/local/lib deben tener precedencia sobre los de ROS apt
+# para que librealsense buildeada desde source (v2.57.6, RSUSB backend) sea la
+# que usa el wrapper de ROS, tanto para binarios (rs-enumerate-devices, etc.)
+# como para la carga dinámica.
+ENV PATH="/usr/local/bin:${PATH}"
+ENV LD_LIBRARY_PATH="/usr/local/lib:${LD_LIBRARY_PATH}"
+RUN echo "source /opt/ros/humble/setup.bash" >> /etc/bash.bashrc && \
+    echo "export PATH=/usr/local/bin:\$PATH" >> /etc/bash.bashrc && \
+    echo "export LD_LIBRARY_PATH=/usr/local/lib:\$LD_LIBRARY_PATH" >> /etc/bash.bashrc
 ENV RUNNING_IN_CONTAINER=1
-RUN echo '[ -f /workspaces/tesis_nav_assistant_ws/tools/dev/context_env.sh ] && source /workspaces/tesis_nav_assistant_ws/tools/dev/context_env.sh' >> /etc/bash.bashrc
+RUN echo '[ -n "$WS_PATH" ] && [ -f "$WS_PATH/tools/dev/context_env.sh" ] && source "$WS_PATH/tools/dev/context_env.sh"' >> /etc/bash.bashrc
 
 WORKDIR /workspaces/tesis_nav_assistant_ws
 USER $USERNAME

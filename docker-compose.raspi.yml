@@ -13,11 +13,12 @@ services:
     network_mode: host
     ipc: host
     privileged: true
-
+    pid: host
     group_add:
       - "dialout"
       - "video"
       - "plugdev"
+      - "986"   # GID del grupo gpio en este Raspberry Pi OS
 
     environment:
       - ROS_DISTRO=humble
@@ -29,7 +30,10 @@ services:
 
     volumes:
       - /dev:/dev
+      - /dev/bus/usb:/dev/bus/usb
+      - /sys:/sys:ro
       - /run/udev:/run/udev:ro
+      - /dev/gpiochip0:/dev/gpiochip0   # GPIO chip para gpio_rosbag_controller
       - ${HOST_WS}:${CONTAINER_WS}
       - ./docker/context.sh:/etc/profile.d/context.sh:ro
 

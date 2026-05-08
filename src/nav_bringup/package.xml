@@ -14,7 +14,7 @@
   <exec_depend>realsense2_camera</exec_depend>
   <exec_depend>local_mapper</exec_depend>
   <exec_depend>depth_grid_encoder</exec_depend>
-  <exec_depend>haptic_grid_generator</exec_depend>
+  <!-- <exec_depend>haptic_grid_generator</exec_depend> -->
   <exec_depend>hardware_manager</exec_depend>
   <exec_depend>output_viewer</exec_depend>
 

@@ -61,7 +61,7 @@ Visualization Manager:
       Name: ObstacleCloud
       Enabled: true
       Topic:
-        Value: /local_mapper/debug/obstacle_cloud
+        Value: /local_mapper/obstacle_cloud
         Depth: 5
         Reliability Policy: Best Effort
       Style: Points
