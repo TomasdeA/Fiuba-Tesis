@@ -48,7 +48,7 @@ void RgbdTracker::reset() {
     initialized_ = false;
     prev_pts_.clear();
     prev_pts3d_.clear();
-    prev_left_ = cv::Mat{};
+    prev_frame_ = cv::Mat{};
 }
 
 VisualOdometryResult RgbdTracker::process(const ColorFrame& frame)
@@ -58,39 +58,53 @@ VisualOdometryResult RgbdTracker::process(const ColorFrame& frame)
     if (!intrinsics_.valid) return result;
 
     // Convertir a cv::Mat sin copia de datos (vista sobre buffer ROS2)
-    const cv::Mat left_img(
+    const cv::Mat curr_frame(
         static_cast<int>(frame.height),
         static_cast<int>(frame.width),
         CV_8UC1,
         const_cast<uint8_t*>(frame.data),
         frame.step);
 
-    // ── Primer frame: inicialización ─────────────────────────────────────────
+    // ── Primer frame: inicialización (Etapas 1+2) ─────────────────────────────
+    // Se detectan esquinas (Etapa 1) y se levanta a 3D (Etapa 2) para
+    // establecer el primer fotograma de referencia.
     if (!initialized_) {
-        left_img.copyTo(prev_left_);
-        detectFeatures(prev_left_, prev_pts_);
-        prev_pts3d_ = liftFromDepth(prev_pts_, prev_pts_);
+        curr_frame.copyTo(prev_frame_);
+        detectFeatures(prev_frame_, prev_pts_);          // Etapa 1
+        prev_pts3d_ = liftFromDepth(prev_pts_, prev_pts_); // Etapa 2
         initialized_ = !prev_pts_.empty();
         return result;
     }
 
-    // ── Tracking Lucas-Kanade: frame anterior --> frame actual ─────────────────
+    // ── Etapa 3: seguimiento Lucas-Kanade piramidal ──────────────────────────────
+    // prev_frame_ / prev_pts_ / prev_pts3d_ contienen el fotograma de referencia
+    // con sus puntos detectados (Etapa 1) y levantados a 3D (Etapa 2).
+    // Esos datos se cargan durante la inicialización o al final de cada ciclo
+    // exitoso (ver actualización de estado al final de esta función).
     std::vector<cv::Point2f> curr_pts;
     std::vector<uchar>       lk_status;
     std::vector<float>       lk_err;
 
-    // Guard: si prev_pts_ está vacío el assert de LK falla
+    // Guard: si prev_pts_ está vacío el assert de LK falla → reset (Etapas 1+2)
     if (prev_pts_.empty()) {
-        left_img.copyTo(prev_left_);
-        detectFeatures(prev_left_, prev_pts_);
-        prev_pts3d_ = liftFromDepth(prev_pts_, prev_pts_);
+        curr_frame.copyTo(prev_frame_);
+        detectFeatures(prev_frame_, prev_pts_);          // Etapa 1
+        prev_pts3d_ = liftFromDepth(prev_pts_, prev_pts_); // Etapa 2
         initialized_ = !prev_pts_.empty();
         return result;
     }
 
+    // prev_frame_  : imagen de referencia (t)
+    // curr_frame : imagen actual (t+1)
+    // prev_pts_   : puntos en la imagen anterior que se quiere seguir
+    // curr_pts    : (salida) nueva posición estimada de esos puntos en la imagen actual
+    // lk_status   : (salida) vector de flags (1 = tracking exitoso, 0 = punto perdido)
+    // lk_err      : (salida) error de tracking por punto (menor = mejor match)
+    // lk_win      : tamaño de la ventana (parche) usada para buscar el punto (ej: 21x21)
+    // cfg_.lk_pyramid_levels : niveles de pirámide (permite manejar movimientos grandes)
     const cv::Size lk_win(cfg_.lk_window_size, cfg_.lk_window_size);
     cv::calcOpticalFlowPyrLK(
-        prev_left_, left_img,
+        prev_frame_, curr_frame,
         prev_pts_, curr_pts,
         lk_status, lk_err,
         lk_win, cfg_.lk_pyramid_levels);
@@ -109,19 +123,18 @@ VisualOdometryResult RgbdTracker::process(const ColorFrame& frame)
     last_num_tracked_ = static_cast<int>(pts_curr_ok.size());
 
     if (last_num_tracked_ < cfg_.min_inliers) {
-        // Tracking failure: reiniciar con este frame como nuevo keyframe
-        left_img.copyTo(prev_left_);
-        detectFeatures(prev_left_, prev_pts_);
-        prev_pts3d_ = liftFromDepth(prev_pts_, prev_pts_);
+        // Tracking failure: reiniciar fotograma de referencia (Etapas 1+2)
+        curr_frame.copyTo(prev_frame_);
+        detectFeatures(prev_frame_, prev_pts_);          // Etapa 1
+        prev_pts3d_ = liftFromDepth(prev_pts_, prev_pts_); // Etapa 2
         initialized_ = !prev_pts_.empty();
         return result;
     }
 
-    // ── Ordenar por profundidad ascendente ────────────────────────────────────
-    // Puntos más cercanos tienen menor ruido de profundidad (sigma_z ~ z^2), por lo
-    // que se priorizan colocándolos primero en el arreglo.  El posterior paso de
-    // refinamiento ponderado los replica proporcionalmente para asignarles mayor
-    // influencia en la estimación de pose.
+    // ── Etapa 4: estimación de pose 6-DOF mediante PnP con RANSAC ─────────────
+    // Ordenar por profundidad ascendente: los puntos más cercanos tienen menor
+    // ruido (sigma_z ~ z^2) y se priorizan para el refinamiento ponderado, que
+    // los replica proporcionalmente para asignarles mayor influencia en la pose.
     {
         std::vector<std::size_t> order(pts3d_ok.size());
         std::iota(order.begin(), order.end(), std::size_t{0});
@@ -139,46 +152,50 @@ VisualOdometryResult RgbdTracker::process(const ColorFrame& frame)
         pts_curr_ok = std::move(tmp2d);
     }
 
-    // ── Estimación de pose 3D-2D con PnP + RANSAC ────────────────────────────
-    // Usamos los puntos 3D del frame anterior y sus proyecciones en el frame actual.
+    // EPnP + RANSAC: puntos 3D de referencia {P_i} → proyecciones 2D del frame actual {x_i}
     cv::Mat rvec, tvec;
     std::vector<int> pnp_inliers;
 
     const bool pnp_ok = cv::solvePnPRansac(
-        pts3d_ok,
-        pts_curr_ok,
-        K_,
-        cv::noArray(),   // sin distorsión (imagen ya rectificada)
-        rvec, tvec,
-        false,           // no usar estimación inicial
-        100,             // iteraciones RANSAC
-        static_cast<float>(cfg_.essential_ransac_threshold),
-        0.99,            // confianza RANSAC
-        pnp_inliers,
-        cv::SOLVEPNP_EPNP);
+        pts3d_ok,       // puntos 3D en el marco de referencia (t-1)
+        pts_curr_ok,    // sus proyecciones 2D en el frame actual (t)
+        K_,             // matriz intrínseca de la cámara
+        cv::noArray(),  // sin coeficientes de distorsión (imagen ya rectificada por RealSense)
+        rvec, tvec,     // salida: rotación (Rodrigues) y traslación
+        false,          // no usar estimación inicial (RANSAC empieza desde cero)
+        100,            // número de iteraciones RANSAC
+        static_cast<float>(cfg_.essential_ransac_threshold),  // umbral de reproyección (px)
+        0.99,           // confianza deseada (probabilidad de que alguna iteración sea libre de outliers)
+        pnp_inliers,    // salida: índices de los inliers del consenso ganador
+        cv::SOLVEPNP_EPNP);  // método: EPnP, complejidad O(N)
 
     last_num_inliers_ = static_cast<int>(pnp_inliers.size());
 
     const float inlier_ratio = (last_num_tracked_ > 0)
         ? static_cast<float>(last_num_inliers_) / static_cast<float>(last_num_tracked_)
         : 0.f;
-
+    // Condiciones de fallo: error interno de OpenCV, pocos inliers absolutos, o ratio demasiado
+    // bajo.
     if (!pnp_ok
         || last_num_inliers_ < cfg_.min_inliers
         || inlier_ratio < cfg_.min_inlier_ratio)
     {
-        // Resultado de PnP no confiable: usar frame actual como referencia
-        left_img.copyTo(prev_left_);
-        detectFeatures(prev_left_, prev_pts_);
-        prev_pts3d_ = liftFromDepth(prev_pts_, prev_pts_);
+        // PnP no confiable: reiniciar fotograma de referencia (Etapas 1+2)
+        curr_frame.copyTo(prev_frame_);
+        detectFeatures(prev_frame_, prev_pts_);          // Etapa 1
+        prev_pts3d_ = liftFromDepth(prev_pts_, prev_pts_); // Etapa 2
         return result;
     }
 
-    // ── Refinamiento ponderado por profundidad ────────────────────────────────
-    // El ruido del D435i crece con z^2; los puntos más cercanos son más fiables.
-    // Se simulan pesos w_i = round(1 / z_i) mediante replicación de inliers
-    // antes de un paso de refinamiento Levenberg-Marquardt.
+    // ── Refinamiento ponderado por profundidad (Levenberg-Marquardt) ───────────
+    //
+    // solvePnPRefineLM no acepta pesos explícitos. Para dar más influencia
+    // a los puntos cercanos (ruido sigma_z ~ z^2 segun D435i), se replican
+    // proporcionalmente a round(1/z_i):
     //   z = 0.25 m --> 4 réplicas   z = 0.5 m --> 2 réplicas   z >= 1.0 m --> 1 réplica
+    // El ordenamiento previo por profundidad no afecta al resultado numérico
+    // pero facilita la construcción del arreglo aumentado (los más replicados
+    // quedan concentrados al inicio).
     {
         std::vector<cv::Point3f> pts3d_ref;
         std::vector<cv::Point2f> pts2d_ref;
@@ -192,6 +209,7 @@ VisualOdometryResult RgbdTracker::process(const ColorFrame& frame)
                 pts2d_ref.push_back(pts_curr_ok[i]);
             }
         }
+        //
         cv::solvePnPRefineLM(pts3d_ref, pts2d_ref, K_, cv::noArray(), rvec, tvec);
     }
 
@@ -202,17 +220,17 @@ VisualOdometryResult RgbdTracker::process(const ColorFrame& frame)
     const float t_mag = static_cast<float>(std::sqrt(tx*tx + ty*ty + tz*tz));
 
     if (t_mag > cfg_.max_translation_per_frame_m) {
-        // Movimiento demasiado grande para ser creíble; probablemente blur
-        left_img.copyTo(prev_left_);
-        detectFeatures(prev_left_, prev_pts_);
-        prev_pts3d_ = liftFromDepth(prev_pts_, prev_pts_);
+        // Traslación no plausible (blur): reiniciar fotograma de referencia (Etapas 1+2)
+        curr_frame.copyTo(prev_frame_);
+        detectFeatures(prev_frame_, prev_pts_);          // Etapa 1
+        prev_pts3d_ = liftFromDepth(prev_pts_, prev_pts_); // Etapa 2
         return result;
     }
 
-    // ── Convertir rvec / tvec a tipos internos ────────────────────────────────
+    // ── Etapa 5: extracción del cuaternión y actualización del fotograma de referencia ─
     // PnP retorna la transformación CÁMARA_ACTUAL --> PUNTOS3D (i.e., pose inversa).
     // Para obtener dR y dT en body frame:
-    //   el rvec de PnP lleva de world (t-1) a cámara (t), que es lo que queremos.
+    //   el rvec de PnP lleva de world (t-1) a cámara (t)
 
     cv::Mat R_cv;
     cv::Rodrigues(rvec, R_cv);
@@ -260,7 +278,7 @@ VisualOdometryResult RgbdTracker::process(const ColorFrame& frame)
     result.valid       = true;
 
     // ── Actualizar estado para el siguiente frame ─────────────────────────────
-    left_img.copyTo(prev_left_);
+    curr_frame.copyTo(prev_frame_);
 
     // Repoblar puntos usando los inliers del PnP, y rellenar si hay pocos
     std::vector<cv::Point2f> new_pts;
@@ -272,7 +290,7 @@ VisualOdometryResult RgbdTracker::process(const ColorFrame& frame)
     // Si quedaron pocos puntos, añadir nuevos detectados en este frame
     if (static_cast<int>(new_pts.size()) < cfg_.max_features / 2) {
         std::vector<cv::Point2f> extra_pts;
-        detectFeatures(left_img, extra_pts);
+        detectFeatures(curr_frame, extra_pts);
         // Filtrar extra_pts que estén demasiado cerca de los nuevos
         for (const auto& ep : extra_pts) {
             bool too_close = false;
@@ -289,8 +307,10 @@ VisualOdometryResult RgbdTracker::process(const ColorFrame& frame)
         }
     }
 
-    prev_pts_  = new_pts;
-    prev_pts3d_ = liftFromDepth(prev_pts_, prev_pts_);
+    // Etapas 1+2 para el siguiente ciclo: new_pts ya contiene los puntos
+    // seleccionados (inliers PnP ± FAST de relleno); se levantan a 3D.
+    prev_pts_   = new_pts;
+    prev_pts3d_ = liftFromDepth(prev_pts_, prev_pts_); // Etapa 2
 
     return result;
 }
@@ -298,6 +318,7 @@ VisualOdometryResult RgbdTracker::process(const ColorFrame& frame)
 void RgbdTracker::detectFeatures(const cv::Mat& img,
                                     std::vector<cv::Point2f>& pts)
 {
+    // ── Etapa 1: detección distribuida de esquinas FAST ───────────────────────
     pts.clear();
 
     // Detección FAST distribuida en una grilla para evitar agrupamiento
@@ -333,6 +354,9 @@ std::vector<cv::Point3f> RgbdTracker::liftFromDepth(
     const std::vector<cv::Point2f>& pts_in,
     std::vector<cv::Point2f>& pts_out)
 {
+    // Proyección inversa pinhole: (u, v, d) → P = ((u-cx)·d/fx, (v-cy)·d/fy, d).
+    // Se descartan píxeles sin dato de profundidad (raw=0) o cuya profundidad
+    // resultante quede fuera del rango válido [depth_min_m, depth_max_m].
     const float inv_fx  = 1.f / intrinsics_.fx;
     const float inv_fy  = 1.f / intrinsics_.fy;
     const float cx      = intrinsics_.cx;

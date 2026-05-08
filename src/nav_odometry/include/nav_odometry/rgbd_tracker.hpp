@@ -84,10 +84,10 @@ private:
     CameraIntrinsics intrinsics_;
     bool             initialized_{false};
 
-    // Estado del frame anterior
-    cv::Mat                  prev_left_;
-    std::vector<cv::Point2f> prev_pts_;    // puntos en imagen izquierda (t-1)
-    std::vector<cv::Point3f> prev_pts3d_;  // puntos 3D (t-1)
+    // Estado del fotograma de referencia
+    cv::Mat                  prev_frame_;
+    std::vector<cv::Point2f> prev_pts_;    // puntos detectados en el fotograma de referencia (t-1)
+    std::vector<cv::Point3f> prev_pts3d_;  // puntos 3D del fotograma de referencia (t-1)
 
     // Estadísticas
     int last_num_tracked_{0};
