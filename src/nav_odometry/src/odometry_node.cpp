@@ -220,7 +220,11 @@ private:
         s.gyro  = {static_cast<float>(msg->angular_velocity.x),
                    static_cast<float>(msg->angular_velocity.y),
                    static_cast<float>(msg->angular_velocity.z)};
-        s.accel = {};  // solo gyro en este callback
+        // Fusionar con el último accel cacheado (max 10 ms de desfase).
+        // NO se llama processImu desde onAccel para evitar que el timestamp del
+        // acelerómetro (100 Hz) pise last_t_ antes de llegar el giro coincidente
+        // (200 Hz), lo que causaría dt≈0 en 1 de cada 4 muestras de giro (−25%).
+        s.accel = latest_accel_;
         estimator_->processImu(s);
         publishOdometry(msg->header.stamp);
         perf_gyro_.record(us_since(t0));
@@ -231,17 +235,10 @@ private:
         // hz: ~100 msg/s
         // bw: ~34 KB/s
         const auto t0 = std::chrono::steady_clock::now();
-        nav_odometry::ImuSample s;
-        s.timestamp_s = toSec(msg->header.stamp);
-        s.gyro  = {};  // solo accel en este callback
-        s.accel = {static_cast<float>(msg->linear_acceleration.x),
-                   static_cast<float>(msg->linear_acceleration.y),
-                   static_cast<float>(msg->linear_acceleration.z)};
-        // Procesar solo la parte accel (el estimador puede distinguir)
-        // Dado que el estimador usa processImu, pasamos solo accel con gyro=0.
-        // El filtro solo aplica corrección de tilt cuando recibe accel, lo cual es
-        // correcto: si gyro=0, fromOmegaDt retorna identity --> sin integración.
-        estimator_->processImu(s);
+        // Solo cachear: la integración ocurre en onGyro para mantener dt correcto.
+        latest_accel_ = {static_cast<float>(msg->linear_acceleration.x),
+                         static_cast<float>(msg->linear_acceleration.y),
+                         static_cast<float>(msg->linear_acceleration.z)};
         perf_accel_.record(us_since(t0));
     }
 
@@ -416,6 +413,7 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr      depth_sub_;
 
     sensor_msgs::msg::Image::SharedPtr latest_depth_;  // depth más reciente
+    nav_odometry::Vec3 latest_accel_{};                 // último accel cacheado
 
     std::string odom_frame_;
     std::string child_frame_;
