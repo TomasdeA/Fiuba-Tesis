@@ -21,6 +21,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <rclcpp/rclcpp.hpp>
+#include <limits>
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/imu.hpp>
@@ -35,6 +36,9 @@
 #include "local_mapper/gravity_aligner.hpp"
 #include "local_mapper/imu_filter.hpp"
 #include "local_mapper/ground_estimator.hpp"
+#include "local_mapper/occupancy_mapper.hpp"
+
+#include <nav_msgs/msg/occupancy_grid.hpp>
 
 using std::placeholders::_1;
 
@@ -58,6 +62,26 @@ class DepthProjectionNode : public rclcpp::Node {
     ge_cfg.ceiling_delta_m = static_cast<float>(
         declare_parameter<double>("ceiling_delta_m", 0.1));
     ground_estimator_ = std::make_unique<local_mapper::GroundEstimator>(ge_cfg);
+
+    // ── OccupancyMapper ──────────────────────────────────────────────────────
+    local_mapper::OccupancyMapper::Config om_cfg;
+    om_cfg.cell_size_m       = static_cast<float>(
+        declare_parameter<double>("occupancy_cell_size_m", 0.10));
+    om_cfg.grid_size         = declare_parameter<int>("occupancy_grid_size", 200);
+    om_cfg.l_occ             = static_cast<float>(
+        declare_parameter<double>("occupancy_l_occ",  2.197));
+    om_cfg.l_free            = static_cast<float>(
+        declare_parameter<double>("occupancy_l_free", -0.847));
+    om_cfg.l_min             = static_cast<float>(
+        declare_parameter<double>("occupancy_l_min", -5.0));
+    om_cfg.l_max             = static_cast<float>(
+        declare_parameter<double>("occupancy_l_max",  5.0));
+    om_cfg.max_range_m       = static_cast<float>(
+        declare_parameter<double>("occupancy_max_range_m", 5.0));
+    om_cfg.forget_radius_m   = static_cast<float>(
+        declare_parameter<double>("occupancy_forget_radius_m", 5.0));
+    om_cfg.enable_raycasting = declare_parameter<bool>("occupancy_enable_raycasting", true);
+    occupancy_mapper_ = std::make_unique<local_mapper::OccupancyMapper>(om_cfg);
 
     // ── ImuFilter + GravityAligner [LEGACY] ──────────────────────────────────
     // Conservados para Experimento E4 (comparación con orientación VIO).
@@ -93,6 +117,10 @@ class DepthProjectionNode : public rclcpp::Node {
     camera_height_pub_ = create_publisher<std_msgs::msg::Float32>(
         "/local_mapper/camera_height", rclcpp::QoS(1).transient_local());
 
+    // Mapa de ocupación 2D acumulado en el marco odom.
+    occupancy_pub_ = create_publisher<nav_msgs::msg::OccupancyGrid>(
+        "/local_mapper/occupancy_grid", rclcpp::QoS(1).transient_local());
+
     // ── Suscriptores ─────────────────────────────────────────────────────────
     // El nodo usa nombres genéricos; el launch file remapea al hardware.
     depth_sub_ = create_subscription<sensor_msgs::msg::Image>(
@@ -104,6 +132,8 @@ class DepthProjectionNode : public rclcpp::Node {
         std::bind(&DepthProjectionNode::onCameraInfo, this, _1));
 
     // Suscripción principal: orientación VIO publicada por nav_odometry.
+    // La posición recibida se usa también por OccupancyMapper para registrar
+    // el mapa al frame odom.
     odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
         "nav_odom", rclcpp::QoS(1).reliable(),
         std::bind(&DepthProjectionNode::onOdom, this, _1));
@@ -201,6 +231,11 @@ class DepthProjectionNode : public rclcpp::Node {
       q_rp_ = {-q_rp_.w, -q_rp_.x, -q_rp_.y, -q_rp_.z};
     }
 
+    // ── Guardar posición odom para OccupancyMapper ──────────────────────────────
+    odom_pos_x_ = static_cast<float>(msg->pose.pose.position.x);
+    odom_pos_z_ = static_cast<float>(msg->pose.pose.position.z);
+    q_yaw_yd_cached_ = q_yaw_yd;
+
     // ── TF 1: odom → gravity_aligned_frame ──────────────────────────────────────────
     geometry_msgs::msg::TransformStamped tf_gaf;
     tf_gaf.header.stamp    = msg->header.stamp;
@@ -241,7 +276,8 @@ class DepthProjectionNode : public rclcpp::Node {
         raw_cloud_pub_->get_subscription_count() == 0 &&
         ground_pub_->get_subscription_count() == 0 &&
         obstacle_pub_->get_subscription_count() == 0 &&
-        ceiling_pub_->get_subscription_count() == 0) return;
+        ceiling_pub_->get_subscription_count() == 0 &&
+        occupancy_pub_->get_subscription_count() == 0) return;
 
     // Retroproyectar
     const auto* depth_data = reinterpret_cast<const uint16_t*>(msg->data.data());
@@ -276,7 +312,8 @@ class DepthProjectionNode : public rclcpp::Node {
     // Estimación del suelo
     if (ground_pub_->get_subscription_count() > 0 ||
         obstacle_pub_->get_subscription_count() > 0 ||
-        ceiling_pub_->get_subscription_count() > 0)
+        ceiling_pub_->get_subscription_count() > 0 ||
+        occupancy_pub_->get_subscription_count() > 0)
     {
       // Convertir a GroundEstimator::Point3D rotando con q_ cacheado de onImu.
       // Los umbrales de altura (min_person_height_m, ceiling_delta_m) requieren
@@ -301,6 +338,119 @@ class DepthProjectionNode : public rclcpp::Node {
       if (obstacle_pub_->get_subscription_count() > 0) {
         publishIndexedCloud(obstacle_pub_, aligned_hdr, ge_cloud,
                             ground_estimator_->obstacleIndices());
+      }
+
+      // ── Mapa de ocupación (frame odom, absoluto) ─────────────
+      // El grid vive en frame odom. Los obstáculos se insertan en coordenadas
+      // odom para que el grid no necesite rotar cuando la cámara gira en yaw.
+      // El shift usa d_odom directamente; shift() actualiza origin_x_/z_.
+      {
+        // ── 1. Shift: desplazar el grid según el movimiento en odom ───────────
+        if (std::isnan(prev_odom_pos_x_)) {
+          RCLCPP_WARN_ONCE(get_logger(),
+              "Primer frame de occupancy — posición anterior no disponible, "
+              "shift omitido. Si este mensaje no aparece solo una vez, "
+              "nav_odometry podría no estar publicando.");
+        } else {
+          // Desplazamiento de la cámara en odom. El grid se desplaza en
+          // dirección opuesta: si la cámara avanza +Z, los obstáculos
+          // históricos retroceden en la ventana → shift_cj negativo.
+          const nav_math::Vec3 d_odom{
+              odom_pos_x_ - prev_odom_pos_x_, 0.f,
+              odom_pos_z_ - prev_odom_pos_z_};
+          // Acumular desplazamiento sub-celda. round() sobre el delta de un
+          // solo frame perdería fracciones de celda a velocidades normales.
+          const float cellSizeM = occupancy_mapper_->cellSizeM();
+          shift_accum_ci_ += -d_odom.x / cellSizeM;
+          shift_accum_cj_ += -d_odom.z / cellSizeM;
+          const int shift_ci = static_cast<int>(shift_accum_ci_);
+          const int shift_cj = static_cast<int>(shift_accum_cj_);
+          shift_accum_ci_ -= static_cast<float>(shift_ci);
+          shift_accum_cj_ -= static_cast<float>(shift_cj);
+
+          RCLCPP_DEBUG_THROTTLE(get_logger(), *get_clock(), 1000,
+              " odom=(%.3f, %.3f)  d_odom=(%.4f, %.4f)  shift=(%d, %d)",
+              odom_pos_x_, odom_pos_z_,
+              d_odom.x, d_odom.z,
+              shift_ci, shift_cj);
+
+          if (d_odom.x == 0.f && d_odom.z == 0.f) {
+            RCLCPP_DEBUG_THROTTLE(get_logger(), *get_clock(), 5000,
+                " Traslación nula en odom — nav_odometry podría no estar "
+                "estimando movimiento (¿VIO sin feature tracks?). "
+                "La rejilla no se desplazará y el mapa solo mostrará el FOV actual.");
+          }
+
+          if (std::abs(shift_ci) > 50 || std::abs(shift_cj) > 50) {
+            RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+                " Shift anormalmente grande (%d, %d) — posible salto en "
+                "odometría o error de convenio de ejes. d_odom=(%.3f, %.3f).",
+                shift_ci, shift_cj, d_odom.x, d_odom.z);
+          }
+
+          occupancy_mapper_->shift(shift_ci, shift_cj);
+        }
+        prev_odom_pos_x_ = odom_pos_x_;
+        prev_odom_pos_z_ = odom_pos_z_;
+
+        // ── 2. Actualizar altura del piso para la visualización ───────────────
+        if (ground_ok) {
+          const float h = ground_estimator_->cameraHeightM();
+          if (h > 0.5f && h < 2.5f) floor_height_m_ = h;
+        }
+
+        // ── 3. Registrar obstáculos en coordenadas odom absolutas ────────────
+        // Los puntos de ge_cloud están en gravity_aligned_frame (XZ relativo
+        // a la cámara, con roll/pitch corregido). Para llevarlos a odom:
+        //   p_odom = q_yaw ⊗ p_gaf + {odom_pos_x_, 0, odom_pos_z_}
+        const auto& obs_idx = ground_estimator_->obstacleIndices();
+        std::vector<local_mapper::OccupancyMapper::Point2D> occ_pts;
+        occ_pts.reserve(obs_idx.size());
+        for (int idx : obs_idx) {
+          const auto& p = ge_cloud[idx];
+          const nav_math::Vec3 p_odom =
+              q_yaw_yd_cached_.rotate({p.x, 0.f, p.z});
+          occ_pts.push_back({p_odom.x + odom_pos_x_, p_odom.z + odom_pos_z_});
+        }
+        occupancy_mapper_->update(occ_pts, odom_pos_x_, odom_pos_z_);
+
+        // ── 4. Publicar OccupancyGrid en frame odom (~2 Hz, throttled) ───────
+        // Publicar a 30 Hz llena la queue de RViz → drops continuos.
+        // A 30 fps de cámara, publicar cada 15 frames = ~2 Hz.
+        ++occ_frame_count_;
+        if (occupancy_pub_->get_subscription_count() > 0 &&
+            occ_frame_count_ >= 15) {
+          occ_frame_count_ = 0;
+          nav_msgs::msg::OccupancyGrid occ_msg;
+          occ_msg.header.stamp    = msg->header.stamp;
+          occ_msg.header.frame_id = "odom";
+          occ_msg.info.map_load_time = msg->header.stamp;
+          occ_msg.info.resolution = occupancy_mapper_->cellSizeM();
+          const int gs = occupancy_mapper_->gridSize();
+          occ_msg.info.width  = static_cast<uint32_t>(gs);
+          occ_msg.info.height = static_cast<uint32_t>(gs);
+          // El vértice (0,0) del grid en odom. origin.y = altura del suelo.
+          // kHalfSqrt2 rota +90° en X para que el plano 2D XY del grid quede
+          // alineado con el plano XZ de odom (Y=abajo en convención óptica).
+          static constexpr double kHalfSqrt2 = 0.7071067811865476;
+          occ_msg.info.origin.position.x = static_cast<double>(occupancy_mapper_->originX());
+          occ_msg.info.origin.position.y = static_cast<double>(floor_height_m_);
+          occ_msg.info.origin.position.z = static_cast<double>(occupancy_mapper_->originZ());
+          occ_msg.info.origin.orientation.w = kHalfSqrt2;
+          occ_msg.info.origin.orientation.x = kHalfSqrt2;
+          occ_msg.info.origin.orientation.y = 0.0;
+          occ_msg.info.origin.orientation.z = 0.0;
+
+          const auto& log_odds = occupancy_mapper_->logOdds();
+          occ_msg.data.resize(log_odds.size());
+          for (std::size_t k = 0; k < log_odds.size(); ++k) {
+            const int ci = static_cast<int>(k) / gs;
+            const int cj = static_cast<int>(k) % gs;
+            occ_msg.data[ci + cj * gs] =
+                local_mapper::OccupancyMapper::logOddsToNavMsg(log_odds[k]);
+          }
+          occupancy_pub_->publish(std::move(occ_msg));
+        }
       }
 
       // Publicar puntos de techo (CEILING) — para debug/visualización
@@ -454,9 +604,13 @@ class DepthProjectionNode : public rclcpp::Node {
   std::unique_ptr<local_mapper::DepthProjector>    projector_;
   std::unique_ptr<local_mapper::ImuFilter>         imu_filter_;  // LEGACY: E4
   std::unique_ptr<local_mapper::GroundEstimator>   ground_estimator_;
+  std::unique_ptr<local_mapper::OccupancyMapper>   occupancy_mapper_;
   local_mapper::GravityAligner                     aligner_;     // LEGACY: E4
   nav_math::Quaternion                              q_{1.0f, 0.0f, 0.0f, 0.0f};
   nav_math::Quaternion                              q_rp_{1.0f, 0.0f, 0.0f, 0.0f};
+  nav_math::Quaternion                              q_yaw_yd_cached_{1.0f, 0.0f, 0.0f, 0.0f};
+  float                                             odom_pos_x_{0.0f};
+  float                                             odom_pos_z_{0.0f};
   std::shared_ptr<tf2_ros::TransformBroadcaster>   tf_br_;
 
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr      depth_sub_;
@@ -470,9 +624,31 @@ class DepthProjectionNode : public rclcpp::Node {
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr obstacle_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr ceiling_pub_;
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr         camera_height_pub_;
+  rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr   occupancy_pub_;
 
   // Última altura publicada (inicializado a 0 para forzar la primera publicación)
   float last_published_height_ = 0.0f;
+
+  // Altura estimada del piso en el marco odom (Y abajo → Y positivo = bajo la cámara).
+  // Se actualiza cada frame cuando ground_ok es true y h está en rango plausible.
+  // Se usa para colocar el OccupancyGrid a la altura real del suelo en RViz.
+  float floor_height_m_ = 0.0f;
+
+  // Posición de la cámara en el frame odom del frame anterior.
+  // Se inicializa a NaN para detectar el primer frame (sin shift).
+  float prev_odom_pos_x_ = std::numeric_limits<float>::quiet_NaN();
+  float prev_odom_pos_z_ = std::numeric_limits<float>::quiet_NaN();
+
+  // Acumuladores de desplazamiento sub-celda para el shift del OccupancyMapper.
+  // A 30 fps y velocidad normal (~1.2 m/s), el movimiento por frame es ~0.04 m
+  // = 0.4 celdas. std::round(0.4) = 0 → sin acumulación el grid nunca se
+  // desplazaría. Al acumular la fracción entre frames se garantiza que cada
+  // metro recorrido produce exactamente 10 celdas de shift.
+  float shift_accum_ci_ = 0.f;
+  float shift_accum_cj_ = 0.f;
+
+  // Contador de frames para throttle de OccupancyGrid (~5 Hz = cada 6 frames a 30 fps).
+  int occ_frame_count_ = 0;
 
   float  range_min_m_ = 0.1f;
   float  range_max_m_ = 5.0f;

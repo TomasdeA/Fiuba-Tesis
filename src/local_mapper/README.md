@@ -73,7 +73,7 @@ ros2 launch realsense2_camera rs_launch.py \
 ros2 launch local_mapper depth_projection.launch.py
 
 # Terminal 3: RViz
-rviz2 -d src/local_mapper/rviz/depth_projection.rviz
+rviz2 -d src/output_viewer/rviz/nav.rviz
 ```
 
 ## Testing
@@ -104,7 +104,7 @@ ros2 run local_mapper depth_projection_node
 ros2 run local_mapper test_depth_projection_visual.py
 
 # Terminal 3: RViz
-rviz2 -d src/local_mapper/rviz/depth_projection.rviz
+rviz2 -d src/output_viewer/rviz/nav.rviz
 ```
 
 En RViz se debe observar el plano a 2 m y el bloque más cercano a 1 m
@@ -138,7 +138,7 @@ source install/setup.bash
 ros2 launch local_mapper depth_projection.launch.py
 
 # Terminal 3: RViz
-rviz2 -d src/local_mapper/rviz/depth_projection.rviz
+rviz2 -d src/output_viewer/rviz/nav.rviz
 ```
 
 **Qué observar en RViz:**

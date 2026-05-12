@@ -30,3 +30,23 @@ local_mapper:
     # Puntos con Y < -ceiling_delta_m están sobre el techo/encima del usuario
     # y se descartan del mapa (no se tratan como obstáculos).
     ceiling_delta_m: 0.1
+
+    # ── OccupancyMapper ─────────────────────────────────────────────────
+    # Tamaño de celda cuadrada de la rejilla (m). Resolución lateral del mapa.
+    occupancy_cell_size_m: 0.10
+    # Número de celdas por lado. Con 200 celdas y 0.10 m/celda el mapa cubre
+    # 20 m × 20 m centrado en el origen del marco odom.
+    occupancy_grid_size: 200
+    # Incremento de log-odds por observación ocupada: log(0.9/0.1) ≈ 2.197
+    occupancy_l_occ:  2.197
+    # Incremento de log-odds por observación libre (negativo): log(0.3/0.7) ≈ -0.847
+    # |l_free| < l_occ : se necesitan ~2.6 lecturas libres para borrar un hit.
+    occupancy_l_free: -0.847
+    # Límites de acumulación (evitan saturación numérica).
+    occupancy_l_min: -5.0
+    occupancy_l_max:  5.0
+    # Distancia máxima al obstáculo incluida en la actualización (m).
+    occupancy_max_range_m: 5.0
+    # Activa el ray casting de espacio libre (recomendado: true).
+    occupancy_enable_raycasting: true
+    occupancy_forget_radius_m: 10.0

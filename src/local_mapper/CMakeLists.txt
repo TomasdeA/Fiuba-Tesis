@@ -25,6 +25,7 @@ add_library(local_mapper_lib STATIC
   src/gravity_aligner.cpp
   src/imu_filter.cpp
   src/ground_estimator.cpp
+  src/occupancy_mapper.cpp
 )
 
 target_include_directories(local_mapper_lib PUBLIC
@@ -57,7 +58,7 @@ install(DIRECTORY include/
   DESTINATION include
 )
 
-install(DIRECTORY config launch rviz
+install(DIRECTORY config launch
   DESTINATION share/${PROJECT_NAME}
   OPTIONAL
 )
