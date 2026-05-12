@@ -270,9 +270,11 @@ VisualOdometryResult RgbdTracker::process(const ColorFrame& frame)
     }
 
     result.delta_rotation    = Quaternion{qw, qx, qy, qz}.normalized();
-    result.delta_translation = Vec3{static_cast<float>(tx),
-                                    static_cast<float>(ty),
-                                    static_cast<float>(tz)};
+    // solvePnP devuelve t tal que P_cam_t = R·P_{t-1} + t  (origen de t-1 en frame t).
+    // El desplazamiento de la cámara en frame t-1 es -R^T·t ≈ -t (rotación pequeña por frame).
+    result.delta_translation = Vec3{static_cast<float>(-tx),
+                                    static_cast<float>(-ty),
+                                    static_cast<float>(-tz)};
     result.num_inliers = last_num_inliers_;
     result.confidence  = inlier_ratio;
     result.valid       = true;

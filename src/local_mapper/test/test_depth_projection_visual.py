@@ -18,7 +18,7 @@ Uso:
   ros2 run local_mapper test_depth_projection_visual.py
 
   # Terminal 3: abrir RViz
-  rviz2 -d src/local_mapper/rviz/depth_projection.rviz
+  rviz2 -d src/output_viewer/rviz/nav.rviz
 
 En RViz se debe observar:
   - Un plano grande (la pared) a z=2.0 m

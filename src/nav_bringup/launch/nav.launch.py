@@ -48,10 +48,10 @@ def generate_launch_description():
     #    'params.yaml',
     #])
 
-    local_mapper_rviz = PathJoinSubstitution([
-        FindPackageShare('local_mapper'),
+    nav_rviz = PathJoinSubstitution([
+        FindPackageShare('output_viewer'),
         'rviz',
-        'depth_projection.rviz',
+        'nav.rviz',
     ])
 
     nav_odometry_launch = PathJoinSubstitution([
@@ -173,9 +173,18 @@ def generate_launch_description():
         condition=IfCondition(use_viz),
     )
 
-    # ── RViz2 (local_mapper debug view) ───────────────────
+    # ── RViz2 (debug view) ────────────────────────────────
     rviz = ExecuteProcess(
-        cmd=['rviz2', '-d', local_mapper_rviz],
+        cmd=['rviz2', '-d', nav_rviz],
+        output='screen',
+        condition=IfCondition(use_rviz),
+    )
+
+    # ── Odometry path (diagnóstico de trayectoria XZ) ─────
+    odometry_path = Node(
+        package='output_viewer',
+        executable='odometry_path',
+        name='odometry_path',
         output='screen',
         condition=IfCondition(use_rviz),
     )
@@ -255,5 +264,6 @@ def generate_launch_description():
         hw_manager,
         viz,
         rviz,
+        odometry_path,
         *gpio_recorder_actions,
     ])
