@@ -1,7 +1,7 @@
 #pragma once
 
 // ─────────────────────────────────────────────────────────────────────────────
-// OccupancyMapper — V5
+// OccupancyMapper
 //
 // Mapa de ocupación 2D local deslizante en log-odds (filtro bayesiano).
 //
@@ -95,14 +95,20 @@ class OccupancyMapper {
   // ── Pipeline principal ──────────────────────────────────────────────────────
 
   /**
-   * Actualiza la rejilla con los obstáculos del fotograma actual.
+   * Actualiza la rejilla con los obstáculos y los rayos libres del fotograma.
    *
-   * @param obstacle_pts  Puntos de obstáculo en el marco odom (plano XZ).
-   * @param sensor_x      Posición X del sensor en el marco odom (m).
-   * @param sensor_z      Posición Z del sensor en el marco odom (m).
+   * @param obstacle_pts        Puntos de obstáculo en el marco odom (plano XZ).
+   * @param sensor_x            Posición X del sensor en el marco odom (m).
+   * @param sensor_z            Posición Z del sensor en el marco odom (m).
+   * @param free_ray_endpoints  Extremos de rayos que no terminan en obstáculo
+   *                            (p. ej. puntos más allá del rango, suelo, techo).
+   *                            Se castea un rayo libre hasta cada endpoint,
+   *                            incluyendo la celda final (sin marcarla ocupada).
+   *                            Submuestre externamente para controlar la CPU.
    */
   void update(const std::vector<Point2D>& obstacle_pts,
-              float sensor_x, float sensor_z);
+              float sensor_x, float sensor_z,
+              const std::vector<Point2D>& free_ray_endpoints = {});
 
   /**
    * Desplaza el contenido de la rejilla (shift_ci, shift_cj) celdas y

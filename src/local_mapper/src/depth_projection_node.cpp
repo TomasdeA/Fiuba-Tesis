@@ -284,12 +284,25 @@ class DepthProjectionNode : public rclcpp::Node {
     auto points = projector_->projectDepthImage(
         depth_data, msg->width, msg->height);
 
-    // Filtrar puntos fuera de rango
+    // Filtrar puntos fuera de rango.
+    // Los puntos con z >= range_max_m_ son mediciones válidas más allá del
+    // rango de interés: se guardan submuestreados para poder castear rayos
+    // libres hasta el borde del rango en esa dirección.
     std::vector<local_mapper::DepthProjector::Point3D> valid;
     valid.reserve(points.size() / 4);
+    std::vector<local_mapper::DepthProjector::Point3D> beyond_range_pts;
+    int beyond_stride_counter = 0;
     for (const auto& pt : points) {
       if (std::isnan(pt.z)) continue;
-      if (pt.z <= range_min_m_ || pt.z >= range_max_m_) continue;
+      if (pt.z <= range_min_m_) continue;
+      if (pt.z >= range_max_m_) {
+        // Submuestrear 1/16: cubre el FOV con ~1200 rayos max (640×480÷16)
+        // manteniendo la carga CPU acotada.
+        if ((beyond_stride_counter++ & 15) == 0) {
+          beyond_range_pts.push_back(pt);
+        }
+        continue;
+      }
       valid.push_back(pt);
     }
 
@@ -412,7 +425,43 @@ class DepthProjectionNode : public rclcpp::Node {
               q_yaw_yd_cached_.rotate({p.x, 0.f, p.z});
           occ_pts.push_back({p_odom.x + odom_pos_x_, p_odom.z + odom_pos_z_});
         }
-        occupancy_mapper_->update(occ_pts, odom_pos_x_, odom_pos_z_);
+
+        // ── Endpoints de rayos libres: suelo, y más allá del rango ───
+        // Las celdas hasta estos puntos deben marcarse libres aunque no haya
+        // obstáculo al final del rayo
+        std::vector<local_mapper::OccupancyMapper::Point2D> free_ray_pts;
+
+        // 1. Suelo: puntos dentro del rango sin obstáculo para rod.
+        //    Submuestrear 1/4 para reducir CPU (GroundEstimator ya voxeliza).
+        const auto addFreeFromIndices =
+            [&](const std::vector<int>& indices, int stride) {
+              for (int k = 0; k < static_cast<int>(indices.size()); k += stride) {
+                const auto& p = ge_cloud[indices[k]];
+                const nav_math::Vec3 p_odom =
+                    q_yaw_yd_cached_.rotate({p.x, 0.f, p.z});
+                free_ray_pts.push_back(
+                    {p_odom.x + odom_pos_x_, p_odom.z + odom_pos_z_});
+              }
+            };
+        addFreeFromIndices(ground_estimator_->groundIndices(),   4);
+        addFreeFromIndices(ground_estimator_->ceilingIndices(),  4);
+
+        // 2. Rayos más allá del rango: proyectar dirección a max_range_m.
+        //    beyond_range_pts ya está submuestreado 1/16 en el filtro.
+        for (const auto& pt : beyond_range_pts) {
+          // Escalar para que el extremo del rayo esté exactamente en
+          // max_range_m a lo largo de la misma dirección de la cámara.
+          const float scale = range_max_m_ / pt.z;  // z >= range_max_m_ > 0
+          const nav_math::Vec3 p_gaf =
+              q_rp_.rotate({pt.x * scale, pt.y * scale, pt.z * scale});
+          const nav_math::Vec3 p_odom =
+              q_yaw_yd_cached_.rotate({p_gaf.x, 0.f, p_gaf.z});
+          free_ray_pts.push_back(
+              {p_odom.x + odom_pos_x_, p_odom.z + odom_pos_z_});
+        }
+
+        occupancy_mapper_->update(occ_pts, odom_pos_x_, odom_pos_z_,
+                                  free_ray_pts);
 
         // ── 4. Publicar OccupancyGrid en frame odom (~2 Hz, throttled) ───────
         // Publicar a 30 Hz llena la queue de RViz → drops continuos.
@@ -455,12 +504,8 @@ class DepthProjectionNode : public rclcpp::Node {
 
       // Publicar puntos de techo (CEILING) — para debug/visualización
       if (ceiling_pub_->get_subscription_count() > 0) {
-        std::vector<int> ceiling_idx;
-        const auto& labels = ground_estimator_->labels();
-        for (int i = 0; i < static_cast<int>(labels.size()); ++i)
-          if (labels[i] == local_mapper::GroundEstimator::Label::CEILING)
-            ceiling_idx.push_back(i);
-        publishIndexedCloud(ceiling_pub_, aligned_hdr, ge_cloud, ceiling_idx);
+        publishIndexedCloud(ceiling_pub_, aligned_hdr, ge_cloud,
+                            ground_estimator_->ceilingIndices());
       }
 
       // Acumular estadísticas de cada frame y emitir resumen cada 10 s
@@ -478,7 +523,7 @@ class DepthProjectionNode : public rclcpp::Node {
       // y el nuevo valor difiere en más de 10 cm del último publicado.
       if (ground_ok && camera_height_pub_->get_subscription_count() > 0) {
         const float h = ground_estimator_->cameraHeightM();
-        if (h > 0.5f && h < 2.5f) {  // rango plausible de altura humana
+        if (h > 0.5f && h < 2.5f) {  // rango factible de altura humana + distancia a cámara
           const float delta = std::abs(h - last_published_height_);
           if (delta > 0.10f) {  // cambio mayor a 10 cm → publicar nueva calibración
             std_msgs::msg::Float32 height_msg;

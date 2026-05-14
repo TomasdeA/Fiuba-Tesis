@@ -141,6 +141,8 @@ class GroundEstimator {
   const std::vector<int>& groundIndices()   const { return ground_idx_; }
   /// Índices de los puntos clasificados como OBSTACLE
   const std::vector<int>& obstacleIndices() const { return obstacle_idx_; }
+  /// Índices de los puntos clasificados como CEILING
+  const std::vector<int>& ceilingIndices()  const { return ceiling_idx_; }
 
   /// Altura de la cámara sobre el suelo en metros
   float cameraHeightM() const;
@@ -192,6 +194,7 @@ class GroundEstimator {
   std::vector<Label>  labels_;
   std::vector<int>    ground_idx_;
   std::vector<int>    obstacle_idx_;
+  std::vector<int>    ceiling_idx_;
 };
 
 }  // namespace local_mapper

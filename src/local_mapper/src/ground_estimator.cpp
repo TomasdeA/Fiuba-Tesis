@@ -127,6 +127,7 @@ bool GroundEstimator::estimate(const std::vector<Point3D>& cloud) {
   labels_.assign(cloud.size(), Label::UNKNOWN);
   ground_idx_.clear();
   obstacle_idx_.clear();
+  ceiling_idx_.clear();
   perf_ = PerfStats{};
   perf_.n_input = static_cast<int>(cloud.size());
 
@@ -567,6 +568,7 @@ void GroundEstimator::stage7_classify(
   labels_.resize(cloud.size(), Label::UNKNOWN);
   ground_idx_.clear();
   obstacle_idx_.clear();
+  ceiling_idx_.clear();
 
   for (int i = 0; i < static_cast<int>(cloud.size()); i++) {
     // GROUND: solo si el plano es válido y el punto está dentro de la tolerancia
@@ -579,6 +581,7 @@ void GroundEstimator::stage7_classify(
     // CEILING: más de ceiling_delta_m por encima de la cámara (Y negativo)
     if (cloud[i].y < -cfg_.ceiling_delta_m) {
       labels_[i] = Label::CEILING;
+      ceiling_idx_.push_back(i);
       continue;  // no se añade al mapa de obstáculos
     }
 

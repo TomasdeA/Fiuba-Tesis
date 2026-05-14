@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// OccupancyMapper — V5
+// OccupancyMapper
 //
 // Mapa de ocupación 2D en log-odds con ray casting de espacio libre.
 // Ver occupancy_mapper.hpp para la descripción completa del módulo.
@@ -158,7 +158,8 @@ void OccupancyMapper::shift(int shift_ci, int shift_cj)
 // ─────────────────────────────────────────────────────────────────────────────
 
 void OccupancyMapper::update(const std::vector<Point2D>& obstacle_pts,
-                             float sensor_x, float sensor_z)
+                             float sensor_x, float sensor_z,
+                             const std::vector<Point2D>& free_ray_endpoints)
 {
   // Celda del sensor (origen del ray casting).
   int sensor_ci, sensor_cj;
@@ -218,6 +219,43 @@ void OccupancyMapper::update(const std::vector<Point2D>& obstacle_pts,
                   free_updated[idx] = true;
                 }
               });
+    }
+  }
+
+  // ── Ray casting para rayos libres (sin obstáculo al final) ─────────────────
+  // Cubre dos casos que el bucle anterior no atiende:
+  //   1. Puntos más allá del rango máximo: el sensor midió z >= max_range_m;
+  //      no hay obstáculo en ese rayo dentro del rango de interés.
+  //   2. Puntos de suelo o techo: válidos en [min,max]_range pero no son
+  //      obstáculos para navegación; las celdas hasta ellos deben ser libres.
+  // Para cada endpoint se castea un rayo libre hasta la celda final inclusive
+  // (a diferencia del caso de obstáculo, donde la celda final es ocupada).
+  for (const auto& pt : free_ray_endpoints) {
+    const float dx = pt.x - sensor_x;
+    const float dz = pt.z - sensor_z;
+    if (dx * dx + dz * dz > max_range2) continue;  // demasiado lejos: ignorar
+
+    int end_ci, end_cj;
+    if (!worldToCell(pt.x, pt.z, end_ci, end_cj)) continue;  // fuera del grid
+
+    if (cfg_.enable_raycasting) {
+      // Celdas intermedias (excluye endpoint).
+      castRay(sensor_ci, sensor_cj, end_ci, end_cj,
+              [this, &free_updated](int ci, int cj) {
+                const auto idx =
+                    static_cast<std::size_t>(ci * cfg_.grid_size + cj);
+                if (!free_updated[idx]) {
+                  updateCell(ci, cj, cfg_.l_free);
+                  free_updated[idx] = true;
+                }
+              });
+      // Celda del endpoint: también libre (no hay obstáculo aquí).
+      const auto end_idx =
+          static_cast<std::size_t>(end_ci * cfg_.grid_size + end_cj);
+      if (!free_updated[end_idx]) {
+        updateCell(end_ci, end_cj, cfg_.l_free);
+        free_updated[end_idx] = true;
+      }
     }
   }
 }
