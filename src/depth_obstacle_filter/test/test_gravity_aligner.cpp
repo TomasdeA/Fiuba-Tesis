@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "local_mapper/gravity_aligner.hpp"
+#include "depth_obstacle_filter/gravity_aligner.hpp"
 #include <cmath>
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -22,7 +22,7 @@ TEST(GravityAligner, QuaternionIdentityNoRotation) {
 
 TEST(GravityAligner, EstimateOrientationFlat_IsIdentity) {
   // Cámara perfectamente horizontal → accel = (0, -g, 0) → rotación identidad
-  local_mapper::GravityAligner aligner;
+  depth_obstacle_filter::GravityAligner aligner;
   const auto q = aligner.estimateOrientation(0.0f, -9.81f, 0.0f);
   EXPECT_NEAR(q.w, 1.0f, 0.05f);
   EXPECT_NEAR(q.x, 0.0f, 0.05f);
@@ -32,7 +32,7 @@ TEST(GravityAligner, EstimateOrientationFlat_IsIdentity) {
 
 TEST(GravityAligner, AlignToGravity_FlatPreservesCoords) {
   // Con la cámara horizontal la alineación no debe modificar los puntos
-  local_mapper::GravityAligner aligner;
+  depth_obstacle_filter::GravityAligner aligner;
   const auto pt = aligner.alignToGravity(1.0f, 2.0f, 3.0f, 0.0f, -9.81f, 0.0f);
   EXPECT_NEAR(pt[0], 1.0f, 0.05f);
   EXPECT_NEAR(pt[1], 2.0f, 0.05f);
@@ -41,7 +41,7 @@ TEST(GravityAligner, AlignToGravity_FlatPreservesCoords) {
 
 TEST(GravityAligner, AlignToGravity_TiltedGivesFiniteResult) {
   // Cámara mirando hacia abajo: gravedad apunta en +Z en el frame óptico
-  local_mapper::GravityAligner aligner;
+  depth_obstacle_filter::GravityAligner aligner;
   const auto pt = aligner.alignToGravity(0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 9.81f);
   EXPECT_TRUE(std::isfinite(pt[0]));
   EXPECT_TRUE(std::isfinite(pt[1]));
@@ -50,7 +50,7 @@ TEST(GravityAligner, AlignToGravity_TiltedGivesFiniteResult) {
 
 TEST(GravityAligner, EstimateOrientation_ZeroAccelReturnsIdentity) {
   // Aceleración nula no debe causar NaN ni división por cero
-  local_mapper::GravityAligner aligner;
+  depth_obstacle_filter::GravityAligner aligner;
   const auto q = aligner.estimateOrientation(0.0f, 0.0f, 0.0f);
   EXPECT_TRUE(std::isfinite(q.w));
   EXPECT_TRUE(std::isfinite(q.x));
@@ -62,7 +62,7 @@ TEST(GravityAligner, EstimateOrientation_ZeroAccelReturnsIdentity) {
 
 TEST(GravityAligner, QuaternionNormIsPreserved) {
   // La rotación no debe cambiar la norma del vector
-  local_mapper::GravityAligner aligner;
+  depth_obstacle_filter::GravityAligner aligner;
   // Inclinación de 30° (roll): ax = sin(30°)·g ≈ 4.9, ay = -cos(30°)·g ≈ -8.5
   const auto pt = aligner.alignToGravity(1.0f, 0.0f, 0.0f, 4.905f, -8.495f, 0.0f);
   const float norm = std::sqrt(pt[0]*pt[0] + pt[1]*pt[1] + pt[2]*pt[2]);

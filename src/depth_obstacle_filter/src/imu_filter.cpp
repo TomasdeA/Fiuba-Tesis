@@ -1,7 +1,7 @@
-#include "local_mapper/imu_filter.hpp"
+#include "depth_obstacle_filter/imu_filter.hpp"
 #include <cmath>
 
-namespace local_mapper {
+namespace depth_obstacle_filter {
 
 // Constantes del filtro IIR de primer orden
 // Frecuencia de corte ≈ 5 Hz, frecuencia de muestreo del IMU ≈ 200 Hz
@@ -65,4 +65,4 @@ void ImuFilter::finishCalibration() {
   heading_rad_ = 0.0f;
 }
 
-}  // namespace local_mapper
+}  // namespace depth_obstacle_filter

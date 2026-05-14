@@ -12,10 +12,10 @@ Escena sintética:
 
 Uso:
   # Terminal 1: levantar el nodo
-  ros2 run local_mapper depth_projection_node
+  ros2 run depth_obstacle_filter depth_obstacle_filter_node
 
   # Terminal 2: publicar la escena sintética
-  ros2 run local_mapper test_depth_projection_visual.py
+  ros2 run depth_obstacle_filter test_depth_projection_visual.py
 
   # Terminal 3: abrir RViz
   rviz2 -d src/output_viewer/rviz/nav.rviz

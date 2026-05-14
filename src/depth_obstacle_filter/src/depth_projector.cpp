@@ -1,7 +1,7 @@
-#include "local_mapper/depth_projector.hpp"
+#include "depth_obstacle_filter/depth_projector.hpp"
 #include <limits>
 
-namespace local_mapper {
+namespace depth_obstacle_filter {
 
 DepthProjector::DepthProjector(const sensor_msgs::msg::CameraInfo& camera_info)
     : fx_(camera_info.k[0]),
@@ -40,4 +40,4 @@ std::vector<DepthProjector::Point3D> DepthProjector::projectDepthImage(
   return points;
 }
 
-}  // namespace local_mapper
+}  // namespace depth_obstacle_filter

@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <sensor_msgs/msg/camera_info.hpp>
 
-namespace local_mapper {
+namespace depth_obstacle_filter {
 
 /**
  * Proyector pinhole de profundidad a 3D.
@@ -72,4 +72,4 @@ class DepthProjector {
   float fx_, fy_, cx_, cy_;
 };
 
-}  // namespace local_mapper
+}  // namespace depth_obstacle_filter

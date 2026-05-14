@@ -60,10 +60,16 @@ def generate_launch_description():
         'odometry.launch.py',
     ])
 
-    depth_projection_launch = PathJoinSubstitution([
+    depth_obstacle_filter_launch = PathJoinSubstitution([
+        FindPackageShare('depth_obstacle_filter'),
+        'launch',
+        'depth_obstacle_filter.launch.py',
+    ])
+
+    local_mapper_launch = PathJoinSubstitution([
         FindPackageShare('local_mapper'),
         'launch',
-        'depth_projection.launch.py',
+        'local_mapper.launch.py',
     ])
 
     # ── RealSense camera (optional — needs the HW) ───────
@@ -105,14 +111,24 @@ def generate_launch_description():
     # ── nav_odometry: IMU + estéreo → nav_msgs/Odometry ──
     # Fusiona giroscopio, acelerómetro y tracker estéreo infrarrojo
     # con un filtro complementario de Mahony.
-    # Publica nav_odom (nav_msgs/Odometry) que consume local_mapper.
+    # Publica nav_odom (nav_msgs/Odometry) consumido por depth_obstacle_filter
+    # y local_mapper.
     nav_odometry = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(nav_odometry_launch),
     )
 
-    # ── Local mapper (occupancy grid from depth + odometry) ──
-    depth_projection = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(depth_projection_launch),
+    # ── depth_obstacle_filter: depth + odometry → obstacle_cloud (odom frame) ──
+    # Proyecta la imagen de profundidad, alinea con gravedad, detecta el suelo
+    # (RANSAC) y publica obstacle_cloud + free_endpoints + sensor_pos.
+    depth_obstacle_filter = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(depth_obstacle_filter_launch),
+    )
+
+    # ── local_mapper: obstacle_cloud → occupancy_grid ─────────────────────────
+    # Consume los tres topics de depth_obstacle_filter (sincronizados por stamp)
+    # y construye el mapa de ocupación 2D incremental en frame odom.
+    local_mapper = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(local_mapper_launch),
     )
 
     # ── Depth-to-matrix encoder (pipeline: raw) ───────────
@@ -257,7 +273,8 @@ def generate_launch_description():
         # Nodes — in pipeline order
         *realsense_actions,
         nav_odometry,
-        depth_projection,
+        depth_obstacle_filter,
+        local_mapper,
         depth_to_matrix,
         obstacle_grid,
         #haptic_grid,

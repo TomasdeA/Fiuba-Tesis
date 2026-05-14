@@ -1,0 +1,25 @@
+depth_obstacle_filter:
+  ros__parameters:
+    # Topics reales de la cámara (dependen del hardware).
+    # El launch file remapea estos a los nombres genéricos que usa el nodo
+    # (depth/image, depth/camera_info, imu).
+    depth_image_topic: "/camera/camera/depth/image_rect_raw"
+    camera_info_topic: "/camera/camera/depth/camera_info"
+    imu_topic:         "/camera/camera/imu"
+
+    # Rango de profundidad válido (metros)
+    range_min_m: 0.25
+    range_max_m: 5.0
+
+    # ── GroundEstimator ─────────────────────────────────────────────────
+    # Tamaño de celda del voxel grid de downsampling (m)
+    voxel_size_m:      0.05
+    # Iteraciones máximas de RANSAC
+    ransac_max_iter:   100
+    # Tolerancia de inliers para RANSAC (0.0 = calcular automáticamente
+    # como 3 × ruido estimado por diagnóstico de la nube)
+    ground_inlier_tol: 0.0
+    # Altura mínima esperada de cualquier usuario del sistema (m).
+    min_person_height_m: 1.3
+    # Margen por encima de la cámara para clasificar como CEILING (m).
+    ceiling_delta_m: 0.1

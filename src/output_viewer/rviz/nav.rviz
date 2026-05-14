@@ -18,7 +18,7 @@ Visualization Manager:
       Name: DepthCloud
       Enabled: false
       Topic:
-        Value: /local_mapper/debug/depth_cloud
+        Value: /depth_obstacle_filter/debug/depth_cloud
         Depth: 5
         Reliability Policy: Best Effort
       Style: Points
@@ -33,7 +33,7 @@ Visualization Manager:
       Name: RawCloud
       Enabled: false
       Topic:
-        Value: /local_mapper/debug/raw_cloud
+        Value: /depth_obstacle_filter/debug/raw_cloud
         Depth: 5
         Reliability Policy: Best Effort
       Style: Points
@@ -48,7 +48,7 @@ Visualization Manager:
       Name: GroundCloud
       Enabled: true
       Topic:
-        Value: /local_mapper/debug/ground_cloud
+        Value: /depth_obstacle_filter/debug/ground_cloud
         Depth: 5
         Reliability Policy: Best Effort
       Style: Points
@@ -62,7 +62,7 @@ Visualization Manager:
       Name: ObstacleCloud
       Enabled: true
       Topic:
-        Value: /local_mapper/obstacle_cloud
+        Value: /depth_obstacle_filter/obstacle_cloud
         Depth: 5
         Reliability Policy: Best Effort
       Style: Points
@@ -77,7 +77,7 @@ Visualization Manager:
       Name: CeilingCloud
       Enabled: false
       Topic:
-        Value: /local_mapper/debug/ceiling_cloud
+        Value: /depth_obstacle_filter/debug/ceiling_cloud
         Depth: 5
         Reliability Policy: Best Effort
       Style: Points

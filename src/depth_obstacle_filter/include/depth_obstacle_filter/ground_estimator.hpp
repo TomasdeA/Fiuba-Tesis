@@ -7,7 +7,7 @@
 #include <limits>
 #include <time.h>
 
-namespace local_mapper {
+namespace depth_obstacle_filter {
 
 /**
  * Estimación del plano del suelo por RANSAC jerárquico sobre la nube alineada.
@@ -197,4 +197,4 @@ class GroundEstimator {
   std::vector<int>    ceiling_idx_;
 };
 
-}  // namespace local_mapper
+}  // namespace depth_obstacle_filter

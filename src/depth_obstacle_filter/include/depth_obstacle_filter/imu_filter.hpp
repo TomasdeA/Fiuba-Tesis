@@ -2,7 +2,7 @@
 
 #include <rclcpp/rclcpp.hpp>
 
-namespace local_mapper {
+namespace depth_obstacle_filter {
 
 /**
  * Filtrado de señales del IMU para estimación de orientación estática.
@@ -80,4 +80,4 @@ class ImuFilter {
   rclcpp::Time last_gyro_stamp_{0, 0, RCL_ROS_TIME};
 };
 
-}  // namespace local_mapper
+}  // namespace depth_obstacle_filter

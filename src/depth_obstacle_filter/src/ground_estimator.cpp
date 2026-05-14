@@ -1,4 +1,4 @@
-#include "local_mapper/ground_estimator.hpp"
+#include "depth_obstacle_filter/ground_estimator.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -10,7 +10,7 @@
 #include <unordered_map>
 #include <time.h>
 
-namespace local_mapper {
+namespace depth_obstacle_filter {
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Utilidades internas
@@ -602,4 +602,4 @@ float GroundEstimator::cameraHeightM() const {
   return ground_plane_.d;
 }
 
-}  // namespace local_mapper
+}  // namespace depth_obstacle_filter

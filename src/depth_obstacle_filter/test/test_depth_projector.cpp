@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "local_mapper/depth_projector.hpp"
+#include "depth_obstacle_filter/depth_projector.hpp"
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <cmath>
 
@@ -14,7 +14,7 @@ static sensor_msgs::msg::CameraInfo makeCameraInfo() {
 }
 
 TEST(DepthProjector, ProjectPixelAtCenter) {
-  local_mapper::DepthProjector proj(makeCameraInfo());
+  depth_obstacle_filter::DepthProjector proj(makeCameraInfo());
 
   // Píxel central a 1 m → (0, 0, 1)
   auto pt = proj.projectPixel(320, 240, 1000, 1e-3f);
@@ -24,7 +24,7 @@ TEST(DepthProjector, ProjectPixelAtCenter) {
 }
 
 TEST(DepthProjector, ProjectPixelAtCorner) {
-  local_mapper::DepthProjector proj(makeCameraInfo());
+  depth_obstacle_filter::DepthProjector proj(makeCameraInfo());
 
   // Píxel desplazado 600 px a la derecha del centro, a 1 m → x ≈ 1.0
   auto pt = proj.projectPixel(920, 240, 1000, 1e-3f);
@@ -34,7 +34,7 @@ TEST(DepthProjector, ProjectPixelAtCorner) {
 }
 
 TEST(DepthProjector, ProjectImageHandlesInvalidPixels) {
-  local_mapper::DepthProjector proj(makeCameraInfo());
+  depth_obstacle_filter::DepthProjector proj(makeCameraInfo());
 
   uint16_t depth_data[4 * 3] = {
       1000, 1000, 2000, 0,

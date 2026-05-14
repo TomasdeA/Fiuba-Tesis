@@ -1,7 +1,7 @@
-#include "local_mapper/gravity_aligner.hpp"
+#include "depth_obstacle_filter/gravity_aligner.hpp"
 #include <cmath>
 
-namespace local_mapper {
+namespace depth_obstacle_filter {
 
 // ── GravityAligner::estimateOrientation ──────────────────────────────────────
 // Calcula el cuaternión de rotación mínima que lleva el vector aceleración
@@ -69,4 +69,4 @@ std::array<float, 3> GravityAligner::alignToGravity(
   return {r.x, r.y, r.z};
 }
 
-}  // namespace local_mapper
+}  // namespace depth_obstacle_filter

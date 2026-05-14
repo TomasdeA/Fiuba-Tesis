@@ -3,7 +3,7 @@
 #include <nav_math/nav_math.hpp>
 #include <array>
 
-namespace local_mapper {
+namespace depth_obstacle_filter {
 
 /**
  * Alinea una nube de puntos a la gravedad usando aceleración del IMU.
@@ -54,4 +54,4 @@ class GravityAligner {
 
 };
 
-}  // namespace local_mapper
+}  // namespace depth_obstacle_filter

@@ -2,9 +2,9 @@
 #include <cmath>
 #include <vector>
 
-#include "local_mapper/ground_estimator.hpp"
+#include "depth_obstacle_filter/ground_estimator.hpp"
 
-using GE = local_mapper::GroundEstimator;
+using GE = depth_obstacle_filter::GroundEstimator;
 using P3 = GE::Point3D;
 
 // ─────────────────────────────────────────────────────────────────────────────
