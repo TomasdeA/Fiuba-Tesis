@@ -94,12 +94,16 @@ void OdometryEstimator::processRgbd(const ColorFrame& frame)
     {
         const auto t0 = std::chrono::steady_clock::now();
 
+        // Capturar la orientación en t-1 ANTES de aplicar la corrección visual,
+        // ya que delta_translation está expresado en el frame de la cámara en t-1.
+        const Quaternion q_t_minus_1 = q_at_last_visual_;
+
         filter_.applyVisualUpdate(vo.delta_rotation, q_at_last_visual_, vo.confidence);
 
         // La translación del tracker está en frame de la cámara en t-1.
-        // La convertimos al frame del mundo usando q_at_last_visual_.
-        const Quaternion q_world = filter_.orientation();
-        const Vec3 dT_world = q_world.rotate(vo.delta_translation);
+        // Se convierte al frame del mundo usando la orientación en t-1 (q_t_minus_1),
+        // NO la orientación post-update, que introduce error cuando hay corrección de yaw.
+        const Vec3 dT_world = q_t_minus_1.rotate(vo.delta_translation);
 
         {
             std::lock_guard<std::mutex> lock(state_mutex_);

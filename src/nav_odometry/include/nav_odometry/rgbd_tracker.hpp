@@ -51,6 +51,12 @@ public:
         // descartan antes de cualquier estimación de pose.
         float depth_min_m{0.25f};
         float depth_max_m{5.0f};
+        // Máximo de fallos consecutivos de PnP antes de forzar reinicio del keyframe.
+        // Cuando PnP falla, el keyframe se mantiene para acumular desplazamiento.
+        // Si falla más de este número de veces seguidas, la escena probablemente
+        // cambió (sin textura, blur extremo) y hay que reiniciar para recuperarse.
+        // A 30 fps: 15 frames = ~500 ms de acumulación máxima.
+        int max_keyframe_age_frames{15};
     };
 
     RgbdTracker();
@@ -92,6 +98,9 @@ private:
     // Estadísticas
     int last_num_tracked_{0};
     int last_num_inliers_{0};
+
+    // Contador de fallos consecutivos de PnP (para límite de edad de keyframe)
+    int consecutive_pnp_failures_{0};
 
     // Depth image más reciente
     DepthFrame depth_frame_{};

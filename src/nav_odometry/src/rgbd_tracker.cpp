@@ -49,6 +49,7 @@ void RgbdTracker::reset() {
     prev_pts_.clear();
     prev_pts3d_.clear();
     prev_frame_ = cv::Mat{};
+    consecutive_pnp_failures_ = 0;
 }
 
 VisualOdometryResult RgbdTracker::process(const ColorFrame& frame)
@@ -180,12 +181,21 @@ VisualOdometryResult RgbdTracker::process(const ColorFrame& frame)
         || last_num_inliers_ < cfg_.min_inliers
         || inlier_ratio < cfg_.min_inlier_ratio)
     {
-        // PnP no confiable: reiniciar fotograma de referencia (Etapas 1+2)
-        curr_frame.copyTo(prev_frame_);
-        detectFeatures(prev_frame_, prev_pts_);          // Etapa 1
-        prev_pts3d_ = liftFromDepth(prev_pts_, prev_pts_); // Etapa 2
+        // PnP no convergió con suficiente consenso.
+        // Se mantiene el keyframe para acumular desplazamiento en el siguiente
+        // ciclo exitoso. Pero si falla demasiadas veces seguidas, la escena
+        // probablemente cambió y hay que reiniciar para no quedarse bloqueado.
+        ++consecutive_pnp_failures_;
+        if (consecutive_pnp_failures_ >= cfg_.max_keyframe_age_frames) {
+            curr_frame.copyTo(prev_frame_);
+            detectFeatures(prev_frame_, prev_pts_);
+            prev_pts3d_ = liftFromDepth(prev_pts_, prev_pts_);
+            initialized_ = !prev_pts_.empty();
+            consecutive_pnp_failures_ = 0;
+        }
         return result;
     }
+    consecutive_pnp_failures_ = 0;
 
     // ── Refinamiento ponderado por profundidad (Levenberg-Marquardt) ───────────
     //
@@ -220,7 +230,8 @@ VisualOdometryResult RgbdTracker::process(const ColorFrame& frame)
     const float t_mag = static_cast<float>(std::sqrt(tx*tx + ty*ty + tz*tz));
 
     if (t_mag > cfg_.max_translation_per_frame_m) {
-        // Traslación no plausible (blur): reiniciar fotograma de referencia (Etapas 1+2)
+        // Traslación físicamente imposible: descarta el frame Y reinicia keyframe.
+        // (ej: cámara tirada, movimiento brusco extremo)
         curr_frame.copyTo(prev_frame_);
         detectFeatures(prev_frame_, prev_pts_);          // Etapa 1
         prev_pts3d_ = liftFromDepth(prev_pts_, prev_pts_); // Etapa 2
@@ -270,11 +281,19 @@ VisualOdometryResult RgbdTracker::process(const ColorFrame& frame)
     }
 
     result.delta_rotation    = Quaternion{qw, qx, qy, qz}.normalized();
-    // solvePnP devuelve t tal que P_cam_t = R·P_{t-1} + t  (origen de t-1 en frame t).
-    // El desplazamiento de la cámara en frame t-1 es -R^T·t ≈ -t (rotación pequeña por frame).
-    result.delta_translation = Vec3{static_cast<float>(-tx),
-                                    static_cast<float>(-ty),
-                                    static_cast<float>(-tz)};
+    // solvePnP devuelve t tal que P_cam_t = R·P_{t-1} + t.
+    // El desplazamiento de la cámara en frame t-1 es: -R^T·t    (fórmula exacta).
+    // La aproximación -t solo es válida si R ≈ I (pequeña rotación por frame).
+    // Se usa la fórmula exacta para evitar acumulación de error en trayectorias
+    // con cambios de dirección significativos (ej: giros en pasillo).
+    cv::Mat R_T;
+    cv::transpose(R_cv, R_T);
+    const double tx2 = -(R_T.at<double>(0,0)*tx + R_T.at<double>(0,1)*ty + R_T.at<double>(0,2)*tz);
+    const double ty2 = -(R_T.at<double>(1,0)*tx + R_T.at<double>(1,1)*ty + R_T.at<double>(1,2)*tz);
+    const double tz2 = -(R_T.at<double>(2,0)*tx + R_T.at<double>(2,1)*ty + R_T.at<double>(2,2)*tz);
+    result.delta_translation = Vec3{static_cast<float>(tx2),
+                                    static_cast<float>(ty2),
+                                    static_cast<float>(tz2)};
     result.num_inliers = last_num_inliers_;
     result.confidence  = inlier_ratio;
     result.valid       = true;

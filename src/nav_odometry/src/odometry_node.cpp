@@ -108,6 +108,7 @@ private:
         declare_parameter<double>("max_translation_m",     0.5);
         declare_parameter<double>("depth_min_m",             0.25);
         declare_parameter<double>("depth_max_m",             5.0);
+        declare_parameter<int>   ("max_keyframe_age_frames", 15);
 
         // Estimador
         declare_parameter<double>("max_velocity_mps",      3.0);
@@ -152,6 +153,8 @@ private:
             static_cast<float>(get_parameter("depth_min_m").as_double());
         cfg.tracker.depth_max_m =
             static_cast<float>(get_parameter("depth_max_m").as_double());
+        cfg.tracker.max_keyframe_age_frames =
+            get_parameter("max_keyframe_age_frames").as_int();
 
         depth_scale_m_ = static_cast<float>(get_parameter("depth_scale_m").as_double());
 
@@ -325,12 +328,22 @@ private:
     // ── Reporte de rendimiento ──────────────────────────────────────────────────
 
     void logPerfStats() {
-        const auto est = estimator_->getPerfReport();
+        const auto est   = estimator_->getPerfReport();
+        const auto state = estimator_->getState();
 
-        RCLCPP_DEBUG(get_logger(),
+        // Ratio de frames VO válidos (donde se integró traslación)
+        const int64_t vo_total = est.tracker.count;
+        const int64_t vo_valid = est.visual_update.count;
+        const float vo_ratio = (vo_total > 0)
+            ? static_cast<float>(vo_valid) / static_cast<float>(vo_total) * 100.f
+            : 0.f;
+
+        RCLCPP_INFO(get_logger(),
             "\n"
-            "[Timings /5s] ────────────────────────────────────\n"
-            "  Depth frames recv /5s: %ld\n"
+            "[Odometría /5s] ──────────────────────────────────\n"
+            "  Posición actual : x=%.3f  y=%.3f  z=%.3f  [m]\n"
+            "  VO válido/total : %ld / %ld frames  (%.0f%%)\n"
+            "  Depth recv /5s  : %ld frames\n"
             "  Callbacks (nodo):\n"
             "    onGyro          avg=%6.1f µs  min=%5.1f  max=%6.1f  n=%ld\n"
             "    onAccel         avg=%6.1f µs  min=%5.1f  max=%6.1f  n=%ld\n"
@@ -342,15 +355,19 @@ private:
             "    visual_update   avg=%6.1f µs  min=%5.1f  max=%6.1f  n=%ld\n"
             "    rgbd_total      avg=%6.1f µs  min=%5.1f  max=%6.1f  n=%ld\n"
             "──────────────────────────────────────────────────",
+            static_cast<double>(state.pose.position.x),
+            static_cast<double>(state.pose.position.y),
+            static_cast<double>(state.pose.position.z),
+            vo_valid, vo_total, static_cast<double>(vo_ratio),
             depth_frames_received_,
-            perf_gyro_.avg_us(),   perf_gyro_.min_us,   perf_gyro_.max_us,   perf_gyro_.count,
-            perf_accel_.avg_us(),  perf_accel_.min_us,  perf_accel_.max_us,  perf_accel_.count,
-            perf_rgbd_process_.avg_us(), perf_rgbd_process_.min_us, perf_rgbd_process_.max_us, perf_rgbd_process_.count,
-            perf_publish_.avg_us(), perf_publish_.min_us, perf_publish_.max_us, perf_publish_.count,
-            est.imu_filter.avg_us(),    est.imu_filter.min_us,    est.imu_filter.max_us,    est.imu_filter.count,
-            est.tracker.avg_us(),       est.tracker.min_us,       est.tracker.max_us,       est.tracker.count,
-            est.visual_update.avg_us(), est.visual_update.min_us, est.visual_update.max_us, est.visual_update.count,
-            est.rgbd_total.avg_us(),  est.rgbd_total.min_us,  est.rgbd_total.max_us,  est.rgbd_total.count);
+            perf_gyro_.avg_us(),   perf_gyro_.min_display(),   perf_gyro_.max_display(),   perf_gyro_.count,
+            perf_accel_.avg_us(),  perf_accel_.min_display(),  perf_accel_.max_display(),  perf_accel_.count,
+            perf_rgbd_process_.avg_us(), perf_rgbd_process_.min_display(), perf_rgbd_process_.max_display(), perf_rgbd_process_.count,
+            perf_publish_.avg_us(), perf_publish_.min_display(), perf_publish_.max_display(), perf_publish_.count,
+            est.imu_filter.avg_us(),    est.imu_filter.min_display(),    est.imu_filter.max_display(),    est.imu_filter.count,
+            est.tracker.avg_us(),       est.tracker.min_display(),       est.tracker.max_display(),       est.tracker.count,
+            est.visual_update.avg_us(), est.visual_update.min_display(), est.visual_update.max_display(), est.visual_update.count,
+            est.rgbd_total.avg_us(),  est.rgbd_total.min_display(),  est.rgbd_total.max_display(),  est.rgbd_total.count);
 
         // Resetear contadores para el siguiente intervalo
         perf_gyro_.reset();

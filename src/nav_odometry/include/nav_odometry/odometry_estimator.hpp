@@ -32,9 +32,9 @@ struct SectionStats {
     double  min_us{std::numeric_limits<double>::max()};
     double  max_us{0.0};
 
-    double avg_us() const noexcept {
-        return count > 0 ? total_us / static_cast<double>(count) : 0.0;
-    }
+    double avg_us()     const noexcept { return count > 0 ? total_us / static_cast<double>(count) : 0.0; }
+    double min_display() const noexcept { return count > 0 ? min_us : 0.0; }
+    double max_display() const noexcept { return count > 0 ? max_us : 0.0; }
     void record(double elapsed_us) noexcept {
         ++count;
         total_us += elapsed_us;
