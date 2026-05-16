@@ -4,7 +4,6 @@
 // Suscribe:  depth/image  (sensor_msgs/Image, 16UC1)
 //            depth/camera_info (sensor_msgs/CameraInfo)
 //            nav_odom     (nav_msgs/Odometry) — orientación VIO de nav_odometry
-//            imu          [LEGACY — conservado para Experimento E4]
 //
 // Publica (interface con local_mapper — tres topics sincronizados por stamp):
 //   /depth_obstacle_filter/obstacle_cloud  — obstáculos en frame odom (PointCloud2 XYZ)
@@ -71,12 +70,12 @@ class DepthObstacleFilterNode : public rclcpp::Node {
         declare_parameter<double>("ceiling_delta_m", 0.1));
     ground_estimator_ = std::make_unique<depth_obstacle_filter::GroundEstimator>(ge_cfg);
 
-    // ── ImuFilter [LEGACY] ────────────────────────────────────────────────────
-    depth_obstacle_filter::ImuFilter::Config imu_cfg;
-    imu_filter_ = std::make_unique<depth_obstacle_filter::ImuFilter>(
-        imu_cfg, get_logger(), get_clock());
+    // ── ImuFilter [LEGACY — E4] ───────────────────────────────────────────────
+    // depth_obstacle_filter::ImuFilter::Config imu_cfg;
+    // imu_filter_ = std::make_unique<depth_obstacle_filter::ImuFilter>(
+    //     imu_cfg, get_logger(), get_clock());
 
-    // ── TF broadcaster ────────────────────────────────────────────────────────
+    // ── TF broadcaster ───────────────────────────────────────────────────────
     tf_br_ = std::make_shared<tf2_ros::TransformBroadcaster>(this);
 
     // ── Publicadores — interface con local_mapper ─────────────────────────────
@@ -119,10 +118,10 @@ class DepthObstacleFilterNode : public rclcpp::Node {
         "nav_odom", rclcpp::QoS(1).reliable(),
         std::bind(&DepthObstacleFilterNode::onOdom, this, _1));
 
-    // [LEGACY] — conservado para Experimento E4
-    imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(
-        "imu", rclcpp::SensorDataQoS(),
-        std::bind(&DepthObstacleFilterNode::onImu, this, _1));
+    // [LEGACY — E4]
+    // imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(
+    //     "imu", rclcpp::SensorDataQoS(),
+    //     std::bind(&DepthObstacleFilterNode::onImu, this, _1));
 
     RCLCPP_INFO(get_logger(),
         "DepthObstacleFilterNode listo. range=[%.2f, %.2f]m",
@@ -141,15 +140,13 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     }
   }
 
-  // ── LEGACY: GravityAligner ────────────────────────────────────────────────
-  void onImu(const sensor_msgs::msg::Imu::SharedPtr msg) {
-    (void)msg;
-    // ── LEGACY (descomentar para Experimento E4) ──────────────────────────
-    // const auto& a = msg->linear_acceleration;
-    // imu_filter_->processAccel(...);
-    // q_ = aligner_.estimateOrientation(...);
-    // ... publicar TF ...
-  }
+  // ── LEGACY: GravityAligner (E4) ──────────────────────────────────────────
+  // void onImu(const sensor_msgs::msg::Imu::SharedPtr msg) {
+  //   (void)msg;
+  //   const auto& a = msg->linear_acceleration;
+  //   imu_filter_->processAccel(...);
+  //   q_ = aligner_.estimateOrientation(...);
+  // }
 
   // ── Orientación VIO (fuente principal) ───────────────────────────────────
   // Calcula q_rp_ (roll+pitch) y q_yaw_yd_cached_ a partir de nav_odom.
@@ -499,9 +496,9 @@ class DepthObstacleFilterNode : public rclcpp::Node {
 
   // ── Miembros ──────────────────────────────────────────────────────────────
   std::unique_ptr<depth_obstacle_filter::DepthProjector>   projector_;
-  std::unique_ptr<depth_obstacle_filter::ImuFilter>        imu_filter_;   // LEGACY: E4
+  // std::unique_ptr<depth_obstacle_filter::ImuFilter>     imu_filter_;   // LEGACY: E4
   std::unique_ptr<depth_obstacle_filter::GroundEstimator>  ground_estimator_;
-  depth_obstacle_filter::GravityAligner                    aligner_;      // LEGACY: E4
+  // depth_obstacle_filter::GravityAligner                 aligner_;      // LEGACY: E4
   nav_math::Quaternion                            q_{1.0f, 0.0f, 0.0f, 0.0f};
   nav_math::Quaternion                            q_rp_{1.0f, 0.0f, 0.0f, 0.0f};
   nav_math::Quaternion                            q_yaw_yd_cached_{1.0f, 0.0f, 0.0f, 0.0f};
@@ -514,7 +511,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr      depth_sub_;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr info_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr      odom_sub_;
-  rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr        imu_sub_;  // LEGACY: E4
+  // rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr     imu_sub_;  // LEGACY: E4
 
   // Interface hacia local_mapper (tres topics sincronizados por stamp)
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr    obstacle_odom_pub_;

@@ -30,8 +30,7 @@ def generate_launch_description():
                               '/camera/camera/depth/image_rect_raw')
     hw_info  = ros_params.get('camera_info_topic',
                               '/camera/camera/depth/camera_info')
-    hw_imu   = ros_params.get('imu_topic',
-                              '/camera/camera/imu')
+    # hw_imu  = ros_params.get('imu_topic', '/camera/camera/imu')  # LEGACY: E4
 
     _default_min, _default_max = _read_sensor_range()
 
@@ -51,7 +50,7 @@ def generate_launch_description():
             remappings=[
                 ('depth/image',       hw_depth),
                 ('depth/camera_info', hw_info),
-                ('imu',               hw_imu),
+                # ('imu', hw_imu),  # LEGACY: E4
             ],
             output='screen',
         )

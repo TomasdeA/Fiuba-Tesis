@@ -5,7 +5,7 @@ depth_obstacle_filter:
     # (depth/image, depth/camera_info, imu).
     depth_image_topic: "/camera/camera/depth/image_rect_raw"
     camera_info_topic: "/camera/camera/depth/camera_info"
-    imu_topic:         "/camera/camera/imu"
+    # imu_topic:       "/camera/camera/imu"  # LEGACY: E4
 
     # Rango de profundidad válido (metros) — definido en nav_bringup/config/sensor_range.yaml
 

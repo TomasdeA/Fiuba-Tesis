@@ -143,7 +143,6 @@ def generate_launch_description():
                 'enable_depth':                 True,
                 'enable_infra1':                False,
                 'enable_infra2':                False,
-                'unite_imu_method':             1,
                 'align_depth.enable':           True,
                 'depth_module.depth_profile':   '640x480x6',
                 'rgb_camera.color_profile':     '640x480x6',
