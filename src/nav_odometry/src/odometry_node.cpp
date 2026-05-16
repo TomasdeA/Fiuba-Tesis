@@ -98,6 +98,9 @@ private:
         declare_parameter<double>("min_visual_confidence", 0.30);
         declare_parameter<double>("gravity_magnitude",     9.807);
 
+        // Visual odometry (RGBD tracker). Si false, solo corre IMU inercial.
+        declare_parameter<bool>("use_visual_odometry", false);
+
         // Tracker estéreo
         declare_parameter<int>   ("fast_threshold",        20);
         declare_parameter<int>   ("max_features",          300);
@@ -184,26 +187,33 @@ private:
             "accel", qos,
             std::bind(&OdometryNode::onAccel, this, _1));
 
-        // Camera info (latched)
-        info_sub_ = create_subscription<sensor_msgs::msg::CameraInfo>(
-            "camera_info", rclcpp::QoS(1).reliable(),
-            std::bind(&OdometryNode::onCameraInfo, this, _1));
+        use_visual_odometry_ = get_parameter("use_visual_odometry").as_bool();
 
-        // Imagen color izquierda
-        color_sub_ = create_subscription<sensor_msgs::msg::Image>(
-            "color", qos,
-            std::bind(&OdometryNode::onColorImage, this, _1));
+        if (use_visual_odometry_) {
+            // Camera info (latched)
+            info_sub_ = create_subscription<sensor_msgs::msg::CameraInfo>(
+                "camera_info", rclcpp::QoS(1).reliable(),
+                std::bind(&OdometryNode::onCameraInfo, this, _1));
 
-        // Depth image (siempre activo)
-        depth_sub_ = create_subscription<sensor_msgs::msg::Image>(
-            "depth", qos,
-            [this](const sensor_msgs::msg::Image::SharedPtr msg) {
-                latest_depth_ = msg;
-                ++depth_frames_received_;
-            });
-        RCLCPP_INFO(get_logger(),
-            "Depth topic: %s",
-            get_parameter("depth_topic").as_string().c_str());
+            // Imagen color
+            color_sub_ = create_subscription<sensor_msgs::msg::Image>(
+                "color", qos,
+                std::bind(&OdometryNode::onColorImage, this, _1));
+
+            // Depth image
+            depth_sub_ = create_subscription<sensor_msgs::msg::Image>(
+                "depth", qos,
+                [this](const sensor_msgs::msg::Image::SharedPtr msg) {
+                    latest_depth_ = msg;
+                    ++depth_frames_received_;
+                });
+            RCLCPP_INFO(get_logger(),
+                "Depth topic: %s",
+                get_parameter("depth_topic").as_string().c_str());
+        } else {
+            RCLCPP_INFO(get_logger(),
+                "use_visual_odometry=false — solo odometría inercial (roll/pitch por IMU)");
+        }
 
         // Timer de reporte de rendimiento: se dispara cada 5 s.
         perf_timer_ = create_wall_timer(
@@ -338,7 +348,7 @@ private:
             ? static_cast<float>(vo_valid) / static_cast<float>(vo_total) * 100.f
             : 0.f;
 
-        RCLCPP_INFO(get_logger(),
+        RCLCPP_DEBUG(get_logger(),
             "\n"
             "[Odometría /5s] ──────────────────────────────────\n"
             "  Posición actual : x=%.3f  y=%.3f  z=%.3f  [m]\n"
@@ -434,6 +444,7 @@ private:
 
     std::string odom_frame_;
     std::string child_frame_;
+    bool        use_visual_odometry_{false};
     bool        intrinsics_set_{false};
     float       depth_scale_m_{0.001f};
     int64_t     depth_frames_received_{0};

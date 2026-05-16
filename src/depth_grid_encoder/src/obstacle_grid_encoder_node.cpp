@@ -32,7 +32,7 @@ public:
     ObstacleGridEncoder() : rclcpp::Node("obstacle_grid_encoder")
     {
         cloud_topic_ = this->declare_parameter<std::string>(
-            "cloud_topic", "/local_mapper/obstacle_cloud");
+            "cloud_topic", "/depth_obstacle_filter/obstacle_cloud");
 
         cfg_.rows    = static_cast<int>(this->declare_parameter<int>("rows", 5));
         cfg_.cols    = static_cast<int>(this->declare_parameter<int>("cols", 10));

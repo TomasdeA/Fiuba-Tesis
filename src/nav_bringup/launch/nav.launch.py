@@ -57,6 +57,8 @@ def generate_launch_description():
     # ── Launch arguments ──────────────────────────────────
     use_realsense      = LaunchConfiguration('use_realsense')
     use_hw             = LaunchConfiguration('use_hw')
+    use_perception     = LaunchConfiguration('use_perception')
+    use_visual_odometry = LaunchConfiguration('use_visual_odometry')
     use_local_mapper   = LaunchConfiguration('use_local_mapper')
     use_viz            = LaunchConfiguration('use_viz')
     use_rviz           = LaunchConfiguration('use_rviz')
@@ -164,7 +166,9 @@ def generate_launch_description():
         launch_arguments={
             'sensor_depth_min_m': str(_depth_min_m),
             'sensor_depth_max_m': str(_depth_max_m),
+            'use_visual_odometry': use_visual_odometry,
         }.items(),
+        condition=IfCondition(use_perception),
     )
 
     # ── depth_obstacle_filter: depth + odometry → obstacle_cloud (odom frame) ──
@@ -176,6 +180,7 @@ def generate_launch_description():
             'sensor_depth_min_m': str(_depth_min_m),
             'sensor_depth_max_m': str(_depth_max_m),
         }.items(),
+        condition=IfCondition(use_perception),
     )
 
     # ── local_mapper: obstacle_cloud → occupancy_grid ─────────────────────────
@@ -308,6 +313,16 @@ def generate_launch_description():
             'use_hw',
             default_value='true',
             description='Launch hardware_manager (UART motors) and gpio_button_node',
+        ),
+        DeclareLaunchArgument(
+            'use_perception',
+            default_value='true',
+            description='Launch nav_odometry and depth_obstacle_filter (disable on viewer-only machines)',
+        ),
+        DeclareLaunchArgument(
+            'use_visual_odometry',
+            default_value='false',
+            description='Habilitar tracker RGBD en nav_odometry. Si false, solo IMU inercial (roll/pitch).',
         ),
         DeclareLaunchArgument(
             'use_local_mapper',

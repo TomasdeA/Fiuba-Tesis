@@ -47,13 +47,16 @@ def generate_launch_description():
             'sensor_depth_min_m', str(_default_min)))
         depth_max = float(context.launch_configurations.get(
             'sensor_depth_max_m', str(_default_max)))
+        use_visual = context.launch_configurations.get(
+            'use_visual_odometry', 'false')
         node = Node(
             package='nav_odometry',
             executable='odometry_node',
             name='nav_odometry',
             parameters=[
                 config_path,
-                {'depth_min_m': depth_min, 'depth_max_m': depth_max},
+                {'depth_min_m': depth_min, 'depth_max_m': depth_max,
+                 'use_visual_odometry': use_visual.lower() == 'true'},
             ],
             remappings=[
                 ('gyro',         hw_gyro),
@@ -76,6 +79,11 @@ def generate_launch_description():
             'sensor_depth_max_m',
             default_value=str(_default_max),
             description='Distancia máxima válida del sensor [m] (fuente: sensor_range.yaml)',
+        ),
+        DeclareLaunchArgument(
+            'use_visual_odometry',
+            default_value='false',
+            description='Habilitar tracker RGBD (visual odometry). Si false, solo IMU inercial.',
         ),
         OpaqueFunction(function=_make_node),
     ])

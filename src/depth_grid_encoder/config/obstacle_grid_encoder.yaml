@@ -1,6 +1,6 @@
 obstacle_grid_encoder:
   ros__parameters:
-    cloud_topic: "/local_mapper/obstacle_cloud"
+    cloud_topic: "/depth_obstacle_filter/obstacle_cloud"
     rows: 5
     cols: 10
     # Guardia de seguridad en X (metros) — descarta puntos espurios fuera del rango
