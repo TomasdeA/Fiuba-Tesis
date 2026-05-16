@@ -306,7 +306,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'use_hw',
-            default_value='false',
+            default_value='true',
             description='Launch hardware_manager (UART motors) and gpio_button_node',
         ),
         DeclareLaunchArgument(
@@ -326,7 +326,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'use_rviz',
-            default_value='true',
+            default_value='false',
             description='Launch RViz2 with local_mapper debug view',
         ),
         DeclareLaunchArgument(
@@ -336,7 +336,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'pipeline_mode',
-            default_value='raw',
+            default_value='filtered',
             description=(
                 "Modo de la pipeline de encodificación de grilla: "
                 "'raw' usa depth_to_matrix (imagen de profundidad directa), "

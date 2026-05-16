@@ -25,7 +25,7 @@ Environment="WS_PATH=/home/tomasdea/Tesis/develop/Fiuba-Tesis"
 ExecStart=/usr/bin/docker compose \
   -f ${WS_PATH}/docker-compose.raspi.yml \
   run --rm dev \
-  bash -lc 'exec ros2 launch nav_bringup nav.launch.py use_hw:=false use_gpio_recorder:=false'
+  bash -lc 'exec ros2 launch nav_bringup nav.launch.py'
 
 # ── Política de reinicio ───────────────────────────────────────────────────
 # Se reinicia automáticamente si el proceso termina con error.
