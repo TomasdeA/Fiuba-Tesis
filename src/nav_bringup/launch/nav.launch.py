@@ -168,7 +168,9 @@ def generate_launch_description():
             'sensor_depth_max_m': str(_depth_max_m),
             'use_visual_odometry': use_visual_odometry,
         }.items(),
-        condition=IfCondition(use_perception),
+        condition=IfCondition(PythonExpression([
+            "'", use_perception, "' == 'true' and '", pipeline_mode, "' == 'filtered'"
+        ])),
     )
 
     # ── depth_obstacle_filter: depth + odometry → obstacle_cloud (odom frame) ──
@@ -180,7 +182,9 @@ def generate_launch_description():
             'sensor_depth_min_m': str(_depth_min_m),
             'sensor_depth_max_m': str(_depth_max_m),
         }.items(),
-        condition=IfCondition(use_perception),
+        condition=IfCondition(PythonExpression([
+            "'", use_perception, "' == 'true' and '", pipeline_mode, "' == 'filtered'"
+        ])),
     )
 
     # ── local_mapper: obstacle_cloud → occupancy_grid ─────────────────────────
@@ -283,6 +287,7 @@ def generate_launch_description():
         recorder_actions.append(IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 _os.path.join(recorder_pkg_share, 'launch', 'rosbag_controller.launch.py')),
+            condition=IfCondition(use_realsense),
         ))
     except Exception:
         recorder_actions.append(
@@ -296,7 +301,9 @@ def generate_launch_description():
         gpio_button_actions.append(IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 _os.path.join(hw_manager_pkg_share, 'launch', 'gpio_button.launch.py')),
-            condition=IfCondition(use_hw),
+            condition=IfCondition(PythonExpression([
+                "'", use_hw, "' == 'true' and '", use_realsense, "' == 'true'"
+            ])),
         ))
     except Exception:
         pass  # gpio_button is optional; hardware_manager may not have launch dir yet
