@@ -337,7 +337,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'hw_port',
-            default_value='/dev/ttyACM0',
+            default_value='/dev/serial0',
             description='Serial port for the haptic actuator ESP32',
         ),
         DeclareLaunchArgument(

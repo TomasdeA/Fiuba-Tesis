@@ -64,7 +64,7 @@ public:
     DepthGridToUart() : Node("depth_grid_to_uart")
     {
         // UART params
-        port_ = this->declare_parameter<std::string>("port", "/dev/ttyACM0");
+        port_ = this->declare_parameter<std::string>("port", "/dev/serial0");
         baud_ = this->declare_parameter<int>("baud", 115200);
 
         // ROS topic
@@ -136,6 +136,9 @@ private:
             }
         };
 
+        add_if_missing("/dev/serial0");
+        add_if_missing("/dev/ttyAMA0");
+        add_if_missing("/dev/ttyS0");
         add_if_missing("/dev/ttyACM0");
         add_if_missing("/dev/ttyACM1");
 
