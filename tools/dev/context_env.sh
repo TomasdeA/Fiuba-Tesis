@@ -190,7 +190,7 @@ tesis-tmux4() {
 
 nav-start() {
     source "$WS_ROOT/install/setup.bash";
-    ros2 launch nav_bringup nav.launch.py; }
-nav-start-hw()     { ros2 launch nav_bringup nav.launch.py use_hw:=true; }
-nav-start-viz()    { ros2 launch nav_bringup nav.launch.py use_viz:=true; }
-nav-start-hw-viz() { ros2 launch nav_bringup nav.launch.py use_hw:=true use_viz:=true; }
+    ros2 launch nav_bringup nav.launch.py use_realsense:=true use_hw:=true hw_port:=/dev/ttyACM0 pipeline_mode:=raw use_perception:=false use_local_mapper:=false use_rviz:=false use_viz:=false; }
+nav-start-hw()     { ros2 launch nav_bringup nav.launch.py use_realsense:=true use_hw:=true hw_port:=/dev/ttyACM0 pipeline_mode:=raw use_perception:=false use_local_mapper:=false use_rviz:=false use_viz:=false; }
+nav-start-viz()    { ros2 launch nav_bringup nav.launch.py use_realsense:=true use_hw:=true hw_port:=/dev/ttyACM0 pipeline_mode:=raw use_perception:=false use_local_mapper:=false use_rviz:=false use_viz:=true; }
+nav-start-hw-viz() { ros2 launch nav_bringup nav.launch.py use_realsense:=true use_hw:=true hw_port:=/dev/ttyACM0 pipeline_mode:=raw use_perception:=false use_local_mapper:=false use_rviz:=false use_viz:=true; }

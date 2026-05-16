@@ -325,7 +325,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'use_perception',
-            default_value='true',
+            default_value='false',
             description='Launch nav_odometry and depth_obstacle_filter (disable on viewer-only machines)',
         ),
         DeclareLaunchArgument(
@@ -340,7 +340,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'hw_port',
-            default_value='/dev/serial0',
+            default_value='/dev/ttyACM0',
             description='Serial port for the haptic actuator ESP32',
         ),
         DeclareLaunchArgument(
@@ -365,7 +365,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'pipeline_mode',
-            default_value='filtered',
+            default_value='raw',
             description=(
                 "Modo de la pipeline de encodificación de grilla: "
                 "'raw' usa depth_to_matrix (imagen de profundidad directa), "
