@@ -57,6 +57,7 @@ def generate_launch_description():
     # ── Launch arguments ──────────────────────────────────
     use_realsense      = LaunchConfiguration('use_realsense')
     use_hw             = LaunchConfiguration('use_hw')
+    use_local_mapper   = LaunchConfiguration('use_local_mapper')
     use_viz            = LaunchConfiguration('use_viz')
     use_rviz           = LaunchConfiguration('use_rviz')
     hw_port            = LaunchConfiguration('hw_port')
@@ -185,6 +186,7 @@ def generate_launch_description():
         launch_arguments={
             'sensor_depth_max_m': str(_depth_max_m),
         }.items(),
+        condition=IfCondition(use_local_mapper),
     )
 
     # ── Depth-to-matrix encoder (pipeline: raw) ───────────
@@ -306,6 +308,11 @@ def generate_launch_description():
             'use_hw',
             default_value='false',
             description='Launch hardware_manager (UART motors) and gpio_button_node',
+        ),
+        DeclareLaunchArgument(
+            'use_local_mapper',
+            default_value='false',
+            description='Launch local_mapper (occupancy grid builder)',
         ),
         DeclareLaunchArgument(
             'hw_port',
