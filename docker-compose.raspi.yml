@@ -33,7 +33,7 @@ services:
       - /dev/bus/usb:/dev/bus/usb
       - /sys:/sys:ro
       - /run/udev:/run/udev:ro
-      - /dev/gpiochip0:/dev/gpiochip0   # GPIO chip para gpio_rosbag_controller
+      - /dev/gpiochip0:/dev/gpiochip0  # GPIO chip para rosbag_controller
       - ${HOST_WS}:${CONTAINER_WS}
       - ./docker/context.sh:/etc/profile.d/context.sh:ro
 
