@@ -233,7 +233,7 @@ def generate_launch_description():
     # ── Hardware manager (UART → motors) ──────────────────
     hw_manager = Node(
         package='hardware_manager',
-        executable='hardware_manager',
+        executable='grid_to_motor',
         name='hardware_manager',
         output='screen',
         condition=IfCondition(use_hw),
