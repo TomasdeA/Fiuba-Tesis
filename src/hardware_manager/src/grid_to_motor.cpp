@@ -2,6 +2,7 @@
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
+#include <dirent.h>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -120,49 +121,91 @@ public:
     }
 
 private:
+    std::vector<std::string> candidate_ports() const
+    {
+        std::vector<std::string> ports;
+        if (!port_.empty())
+        {
+            ports.push_back(port_);
+        }
+
+        auto add_if_missing = [&ports](const std::string &p) {
+            if (std::find(ports.begin(), ports.end(), p) == ports.end())
+            {
+                ports.push_back(p);
+            }
+        };
+
+        add_if_missing("/dev/ttyACM0");
+        add_if_missing("/dev/ttyACM1");
+
+        DIR *dir = opendir("/dev");
+        if (dir != nullptr)
+        {
+            while (dirent *entry = readdir(dir))
+            {
+                const std::string name(entry->d_name);
+                if (name.rfind("ttyACM", 0) == 0)
+                {
+                    add_if_missing("/dev/" + name);
+                }
+            }
+            closedir(dir);
+        }
+
+        return ports;
+    }
+
     bool try_open_uart()
     {
-        fd_ = open(port_.c_str(), O_RDWR | O_NOCTTY | O_SYNC);
-        if (fd_ < 0)
+        for (const auto &candidate : candidate_ports())
         {
-            return false;
+            const int maybe_fd = open(candidate.c_str(), O_RDWR | O_NOCTTY | O_SYNC);
+            if (maybe_fd < 0)
+            {
+                continue;
+            }
+
+            termios tty{};
+            if (tcgetattr(maybe_fd, &tty) != 0)
+            {
+                close(maybe_fd);
+                continue;
+            }
+
+            // 8N1
+            tty.c_cflag = (tty.c_cflag & ~CSIZE) | CS8;
+            tty.c_cflag |= (CLOCAL | CREAD);
+            tty.c_cflag &= ~(PARENB | PARODD);
+            tty.c_cflag &= ~CSTOPB;
+            tty.c_cflag &= ~CRTSCTS;
+
+            // raw
+            tty.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
+            tty.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+            tty.c_oflag &= ~OPOST;
+
+            // timeouts
+            tty.c_cc[VMIN] = 0;
+            tty.c_cc[VTIME] = 1; // 0.1s
+
+            speed_t spd = to_speed(baud_);
+            cfsetispeed(&tty, spd);
+            cfsetospeed(&tty, spd);
+
+            if (tcsetattr(maybe_fd, TCSANOW, &tty) != 0)
+            {
+                close(maybe_fd);
+                continue;
+            }
+
+            fd_ = maybe_fd;
+            port_ = candidate;
+            RCLCPP_INFO(get_logger(), "UART abierto %s @ %d", port_.c_str(), baud_);
+            return true;
         }
 
-        termios tty{};
-        if (tcgetattr(fd_, &tty) != 0)
-        {
-            throw std::runtime_error("tcgetattr failed: " + std::string(std::strerror(errno)));
-        }
-
-        // 8N1
-        tty.c_cflag = (tty.c_cflag & ~CSIZE) | CS8;
-        tty.c_cflag |= (CLOCAL | CREAD);
-        tty.c_cflag &= ~(PARENB | PARODD);
-        tty.c_cflag &= ~CSTOPB;
-        tty.c_cflag &= ~CRTSCTS;
-
-        // raw
-        tty.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
-        tty.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
-        tty.c_oflag &= ~OPOST;
-
-        // timeouts
-        tty.c_cc[VMIN] = 0;
-        tty.c_cc[VTIME] = 1; // 0.1s
-
-        speed_t spd = to_speed(baud_);
-        cfsetispeed(&tty, spd);
-        cfsetospeed(&tty, spd);
-
-        if (tcsetattr(fd_, TCSANOW, &tty) != 0)
-        {
-            close(fd_);
-            fd_ = -1;
-            return false;
-        }
-
-        RCLCPP_INFO(get_logger(), "UART abierto %s @ %d", port_.c_str(), baud_);
-        return true;
+        return false;
     }
 
     void reconnect_cb()

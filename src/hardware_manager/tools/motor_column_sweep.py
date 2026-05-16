@@ -19,6 +19,7 @@ Uso:
 
 import argparse
 import fcntl
+import glob
 import os
 import termios
 import time
@@ -37,28 +38,52 @@ BAUD_MAP = {
 }
 
 
-def open_serial(port: str, baud: int) -> int:
-    fd = os.open(port, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
-    # Quitar O_NONBLOCK para escritura bloqueante
-    flags = fcntl.fcntl(fd, fcntl.F_GETFL)
-    fcntl.fcntl(fd, fcntl.F_SETFL, flags & ~os.O_NONBLOCK)
+def serial_candidates(port_hint: str) -> list:
+    candidates = []
+    if port_hint:
+        candidates.append(port_hint)
+    for base in ("/dev/ttyACM0", "/dev/ttyACM1"):
+        if base not in candidates:
+            candidates.append(base)
+    for path in sorted(glob.glob("/dev/ttyACM*")):
+        if path not in candidates:
+            candidates.append(path)
+    return candidates
 
-    attrs = termios.tcgetattr(fd)
-    # cflag: 8N1, sin flow control
-    attrs[2] = termios.CS8 | termios.CLOCAL | termios.CREAD
-    # iflag, oflag, lflag: raw
-    attrs[0] = 0
-    attrs[1] = 0
-    attrs[3] = 0
-    # cc
-    attrs[6][termios.VMIN]  = 0
-    attrs[6][termios.VTIME] = 1
-    # velocidad
-    spd = BAUD_MAP.get(baud, termios.B115200)
-    attrs[4] = spd  # ispeed
-    attrs[5] = spd  # ospeed
-    termios.tcsetattr(fd, termios.TCSANOW, attrs)
-    return fd
+
+def open_serial(port: str, baud: int) -> tuple[int, str]:
+    last_error = None
+    for candidate in serial_candidates(port):
+        try:
+            fd = os.open(candidate, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+        except OSError as exc:
+            last_error = exc
+            continue
+
+        # Quitar O_NONBLOCK para escritura bloqueante
+        flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+        fcntl.fcntl(fd, fcntl.F_SETFL, flags & ~os.O_NONBLOCK)
+
+        attrs = termios.tcgetattr(fd)
+        # cflag: 8N1, sin flow control
+        attrs[2] = termios.CS8 | termios.CLOCAL | termios.CREAD
+        # iflag, oflag, lflag: raw
+        attrs[0] = 0
+        attrs[1] = 0
+        attrs[3] = 0
+        # cc
+        attrs[6][termios.VMIN] = 0
+        attrs[6][termios.VTIME] = 1
+        # velocidad
+        spd = BAUD_MAP.get(baud, termios.B115200)
+        attrs[4] = spd  # ispeed
+        attrs[5] = spd  # ospeed
+        termios.tcsetattr(fd, termios.TCSANOW, attrs)
+        return fd, candidate
+
+    if last_error is None:
+        raise OSError("No se encontraron puertos /dev/ttyACM*")
+    raise last_error
 
 
 def build_frame(duties: list) -> bytes:
@@ -86,8 +111,9 @@ def main():
     parser.add_argument("--repeat", type=int,   default=1,   help="Repeticiones del barrido")
     args = parser.parse_args()
 
-    print(f"Abriendo {args.port} @ {args.baud} bps")
-    fd = open_serial(args.port, args.baud)
+    print(f"Abriendo UART ({args.port}) @ {args.baud} bps")
+    fd, connected_port = open_serial(args.port, args.baud)
+    print(f"Conectado a {connected_port}")
     try:
         time.sleep(0.1)  # esperar posible reset del ESP32
 
