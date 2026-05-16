@@ -29,7 +29,7 @@ ExecStart=/usr/bin/docker compose \
 
 # ── Política de reinicio ───────────────────────────────────────────────────
 # Se reinicia automáticamente si el proceso termina con error.
-Restart=on-failure
+Restart=no
 RestartSec=5s
 
 # Tiempo máximo para que todos los nodos hijos cierren al detener el servicio.
