@@ -68,7 +68,7 @@ public:
         baud_ = this->declare_parameter<int>("baud", 115200);
 
         // ROS topic
-        topic_ = this->declare_parameter<std::string>("topic", "/haptics/intensity_grid");
+        topic_ = this->declare_parameter<std::string>("topic", "/perception/depth_grid");
 
         // Distance->duty mapping
         z_min_m_ = static_cast<float>(this->declare_parameter<double>("z_min_m", 0.25));
