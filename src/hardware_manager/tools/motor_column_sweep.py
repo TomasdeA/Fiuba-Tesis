@@ -14,7 +14,7 @@ Protocolo: "M d0 d1 ... d49\n"
                                     col=0,row=4 → d49 (inf-izq)
 
 Uso:
-    python3 motor_column_sweep.py [--port /dev/ttyACM0] [--baud 115200] [--delay 0.8] [--duty 100] [--repeat 1]
+    python3 motor_column_sweep.py [--port /dev/serial0] [--baud 115200] [--delay 0.8] [--duty 100] [--repeat 1]
 """
 
 import argparse
@@ -42,6 +42,9 @@ def serial_candidates(port_hint: str) -> list:
     candidates = []
     if port_hint:
         candidates.append(port_hint)
+    for base in ("/dev/serial0", "/dev/ttyAMA0", "/dev/ttyS0"):
+        if base not in candidates:
+            candidates.append(base)
     for base in ("/dev/ttyACM0", "/dev/ttyACM1"):
         if base not in candidates:
             candidates.append(base)
@@ -104,7 +107,7 @@ def all_off_frame() -> bytes:
 
 def main():
     parser = argparse.ArgumentParser(description="Barrido de columnas para ESP32")
-    parser.add_argument("--port",   default="/dev/ttyACM0")
+    parser.add_argument("--port",   default="/dev/serial0")
     parser.add_argument("--baud",   type=int,   default=115200)
     parser.add_argument("--delay",  type=float, default=0.8, help="Segundos por columna")
     parser.add_argument("--duty",   type=int,   default=100, help="Duty cycle activo (0-100)")
