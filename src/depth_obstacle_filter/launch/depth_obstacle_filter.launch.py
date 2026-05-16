@@ -1,18 +1,25 @@
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch_ros.actions import Node
-from launch.substitutions import PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
 import yaml
 import os
 
 
-def generate_launch_description():
-    config_path = PathJoinSubstitution([
-        FindPackageShare('depth_obstacle_filter'),
-        'config',
-        'params.yaml',
-    ])
+def _read_sensor_range():
+    """Lee sensor_range.yaml de nav_bringup. Usado como fallback en uso standalone."""
+    try:
+        from ament_index_python.packages import get_package_share_directory
+        sr_file = os.path.join(
+            get_package_share_directory('nav_bringup'), 'config', 'sensor_range.yaml')
+        with open(sr_file) as f:
+            sr = yaml.safe_load(f)
+        return float(sr['depth_min_m']), float(sr['depth_max_m'])
+    except Exception:
+        return 0.25, 5.0
 
+
+def generate_launch_description():
     pkg_share = FindPackageShare('depth_obstacle_filter').find('depth_obstacle_filter')
     params_file = os.path.join(pkg_share, 'config', 'params.yaml')
     with open(params_file, 'r') as f:
@@ -26,19 +33,40 @@ def generate_launch_description():
     hw_imu   = ros_params.get('imu_topic',
                               '/camera/camera/imu')
 
-    depth_obstacle_filter_node = Node(
-        package='depth_obstacle_filter',
-        executable='depth_obstacle_filter_node',
-        name='depth_obstacle_filter',
-        parameters=[config_path],
-        remappings=[
-            ('depth/image',       hw_depth),
-            ('depth/camera_info', hw_info),
-            ('imu',               hw_imu),
-        ],
-        output='screen',
-    )
+    _default_min, _default_max = _read_sensor_range()
+
+    def _make_node(context, *args, **kwargs):
+        depth_min = float(context.launch_configurations.get(
+            'sensor_depth_min_m', str(_default_min)))
+        depth_max = float(context.launch_configurations.get(
+            'sensor_depth_max_m', str(_default_max)))
+        node = Node(
+            package='depth_obstacle_filter',
+            executable='depth_obstacle_filter_node',
+            name='depth_obstacle_filter',
+            parameters=[
+                params_file,
+                {'range_min_m': depth_min, 'range_max_m': depth_max},
+            ],
+            remappings=[
+                ('depth/image',       hw_depth),
+                ('depth/camera_info', hw_info),
+                ('imu',               hw_imu),
+            ],
+            output='screen',
+        )
+        return [node]
 
     return LaunchDescription([
-        depth_obstacle_filter_node,
+        DeclareLaunchArgument(
+            'sensor_depth_min_m',
+            default_value=str(_default_min),
+            description='Distancia mínima válida del sensor [m] (fuente: sensor_range.yaml)',
+        ),
+        DeclareLaunchArgument(
+            'sensor_depth_max_m',
+            default_value=str(_default_max),
+            description='Distancia máxima válida del sensor [m] (fuente: sensor_range.yaml)',
+        ),
+        OpaqueFunction(function=_make_node),
     ])

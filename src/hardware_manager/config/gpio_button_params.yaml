@@ -1,0 +1,32 @@
+# gpio_button_node — parámetros de hardware GPIO (Raspberry Pi)
+# Solo se usa cuando use_hw:=true
+
+gpio_button:
+  ros__parameters:
+
+    # Chip GPIO. En todos los modelos de Raspberry Pi es "gpiochip0".
+    gpio_chip: "gpiochip0"
+
+    # BCM GPIO del botón/switch (INPUT).
+    # Default: BCM 17 = pin físico 11.
+    # Cableado: resistencia 10kΩ pull-down a GND; switch conecta BCM 17 a 3.3V.
+    switch_gpio: 17
+
+    # BCM GPIO del LED (OUTPUT).
+    # Default: BCM 27 = pin físico 13.
+    # Cableado: BCM 27 → resistencia 330Ω → ánodo LED → cátodo LED → GND.
+    led_gpio: 27
+
+    # Intervalo de polling del GPIO en ms.
+    poll_period_ms: 50
+
+    # Lecturas consecutivas iguales para confirmar cambio de estado.
+    # Con poll_period_ms=50 da una ventana de debounce de 250ms.
+    debounce_count: 5
+
+    # Semiperíodo del blink en ms (el LED cambia cada blink_period_ms).
+    # 500ms → blink a 1 Hz (500ms ON, 500ms OFF).
+    blink_period_ms: 500
+
+    # Nombre completo del servicio de grabación a llamar.
+    recorder_service: "/rosbag_controller/set_recording"

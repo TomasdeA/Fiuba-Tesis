@@ -1,0 +1,7 @@
+# ── Rango de distancia del sensor (fuente única de verdad) ────────────────────
+# Para cambiar el rango válido de profundidad: editar SÓLO este archivo.
+# nav.launch.py lee estos dos valores y los mapea al nombre correcto
+# de parámetro de cada nodo automáticamente.
+# ─────────────────────────────────────────────────────────────────────────────
+depth_min_m: 0.25
+depth_max_m: 5.0

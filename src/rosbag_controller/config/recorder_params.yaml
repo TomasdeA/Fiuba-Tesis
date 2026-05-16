@@ -1,0 +1,32 @@
+# rosbag_controller_node — parámetros de grabación
+# Aplicar con: --params-file recorder_params.yaml
+
+/**:
+  ros__parameters:
+
+    # Directorio donde se guardan los bags.
+    # El nodo lo crea si no existe.
+    bag_output_dir: "~/bags"
+
+    # Segundos de espera para que rosbag salga limpiamente tras SIGINT
+    # antes de enviar SIGKILL.
+    stop_timeout_s: 10
+
+    # Tópicos a grabar. Solo los necesarios para análisis offline VIO/depth.
+    topics:
+      - "/camera/camera/aligned_depth_to_color/image_raw"
+      - "/camera/camera/aligned_depth_to_color/camera_info"
+      - "/camera/camera/depth/image_rect_raw"
+      - "/camera/camera/depth/camera_info"
+      - "/camera/camera/color/image_raw"
+      - "/camera/camera/color/camera_info"
+      - "/camera/camera/accel/sample"
+      - "/camera/camera/gyro/sample"
+      - "/camera/camera/imu"
+      - "/camera/camera/accel/imu_info"
+      - "/camera/camera/gyro/imu_info"
+      - "/camera/camera/extrinsics/depth_to_color"
+      - "/camera/camera/extrinsics/depth_to_accel"
+      - "/camera/camera/extrinsics/depth_to_gyro"
+      - "/tf_static"
+      - "/rosout"

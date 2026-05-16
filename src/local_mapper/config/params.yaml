@@ -12,8 +12,7 @@ local_mapper:
     # Límites de acumulación
     occupancy_l_min: -5.0
     occupancy_l_max:  5.0
-    # Distancia máxima al obstáculo incluida en la actualización (m)
-    occupancy_max_range_m: 5.0
+    # Distancia máxima al obstáculo incluida en la actualización (m) — definido en nav_bringup/config/sensor_range.yaml
     # Activa el ray casting de espacio libre (recomendado: true)
     occupancy_enable_raycasting: true
     occupancy_forget_radius_m: 10.0

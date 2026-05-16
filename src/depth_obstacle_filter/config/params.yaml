@@ -7,9 +7,7 @@ depth_obstacle_filter:
     camera_info_topic: "/camera/camera/depth/camera_info"
     imu_topic:         "/camera/camera/imu"
 
-    # Rango de profundidad válido (metros)
-    range_min_m: 0.25
-    range_max_m: 5.0
+    # Rango de profundidad válido (metros) — definido en nav_bringup/config/sensor_range.yaml
 
     # ── GroundEstimator ─────────────────────────────────────────────────
     # Tamaño de celda del voxel grid de downsampling (m)

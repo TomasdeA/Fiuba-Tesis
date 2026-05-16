@@ -1,11 +1,13 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>gpio_rosbag_controller</name>
-  <version>0.1.0</version>
+  <name>rosbag_controller</name>
+  <version>0.2.0</version>
   <description>
-    Lightweight GPIO-driven rosbag recorder controller for Raspberry Pi.
-    A physical switch starts/stops recording; an LED provides visual feedback.
+    Hardware-agnostic rosbag recorder controller for ROS 2.
+    rosbag_controller_node: exposes a SetBool service to start/stop recording.
+    gpio_button_node: reads a physical GPIO button/LED (Raspberry Pi only,
+    launched when use_hw:=true) and calls the recorder service.
   </description>
   <maintainer email="dev@todo.todo">dev</maintainer>
   <license>MIT</license>
@@ -13,7 +15,10 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
-  <!-- libgpiod is required on the system: sudo apt install libgpiod-dev -->
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
+  <!-- libgpiod is required on the system for gpio_button_node:
+       sudo apt install libgpiod-dev -->
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

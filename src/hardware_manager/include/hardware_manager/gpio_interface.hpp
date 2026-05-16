@@ -7,7 +7,7 @@
 struct gpiod_chip;
 struct gpiod_line;
 
-namespace gpio_rosbag_controller
+namespace hardware_manager
 {
 
     /// Direction of a GPIO line.
@@ -55,4 +55,4 @@ namespace gpio_rosbag_controller
         unsigned int offset_;
     };
 
-} // namespace gpio_rosbag_controller
+} // namespace hardware_manager

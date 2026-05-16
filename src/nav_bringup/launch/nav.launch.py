@@ -1,4 +1,6 @@
+import glob
 import os
+import yaml
 
 from launch import LaunchDescription
 from launch.actions import (
@@ -6,6 +8,8 @@ from launch.actions import (
     ExecuteProcess,
     IncludeLaunchDescription,
     LogInfo,
+    OpaqueFunction,
+    TimerAction,
 )
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -19,15 +23,46 @@ from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 
+def _resolve_bag_path(context, *args, **kwargs):
+    """Return the bag play action with a startup delay.
+    Guards: only runs when use_bag=true AND use_realsense=false.
+    """
+    if context.launch_configurations.get('use_realsense', 'true').lower() == 'true':
+        return [LogInfo(msg='use_realsense is true — skipping bag playback')]
+
+    bag_path = context.launch_configurations.get('bag_path', '').strip()
+    if not bag_path:
+        bags_dir = os.path.expanduser('~/bags')
+        candidates = sorted(glob.glob(os.path.join(bags_dir, 'field_*')))
+        if not candidates:
+            return [LogInfo(msg=f'No bags found in {bags_dir}')]
+        bag_path = candidates[-1]
+
+    return [
+        LogInfo(msg=f'Bag playback scheduled in 10 s: {bag_path}'),
+        TimerAction(
+            period=10.0,
+            actions=[
+                LogInfo(msg=f'Playing bag: {bag_path}'),
+                ExecuteProcess(
+                    cmd=['ros2', 'bag', 'play', '--loop', bag_path],
+                    output='screen',
+                ),
+            ],
+        ),
+    ]
+
+
 def generate_launch_description():
     # ── Launch arguments ──────────────────────────────────
     use_realsense      = LaunchConfiguration('use_realsense')
     use_hw             = LaunchConfiguration('use_hw')
     use_viz            = LaunchConfiguration('use_viz')
     use_rviz           = LaunchConfiguration('use_rviz')
-    use_gpio_recorder  = LaunchConfiguration('use_gpio_recorder')
     hw_port            = LaunchConfiguration('hw_port')
     pipeline_mode      = LaunchConfiguration('pipeline_mode')
+    bag_path           = LaunchConfiguration('bag_path')
+    use_bag            = LaunchConfiguration('use_bag')
 
     # ── Config file paths ─────────────────────────────────
     depth_to_matrix_cfg = PathJoinSubstitution([
@@ -41,6 +76,16 @@ def generate_launch_description():
         'config',
         'obstacle_grid_encoder.yaml',
     ])
+
+    # ── Rango de distancia del sensor (fuente única de verdad) ─────────────
+    # Se lee aquí y se inyecta con el nombre correcto en cada nodo/sub-launch.
+    # Para cambiar el rango, editar solo nav_bringup/config/sensor_range.yaml.
+    from ament_index_python.packages import get_package_share_directory as _gpsd_sr
+    _sr_file = os.path.join(_gpsd_sr('nav_bringup'), 'config', 'sensor_range.yaml')
+    with open(_sr_file) as _f:
+        _sr = yaml.safe_load(_f)
+    _depth_min_m = float(_sr['depth_min_m'])
+    _depth_max_m = float(_sr['depth_max_m'])
 
     #haptic_grid_cfg = PathJoinSubstitution([
     #    FindPackageShare('haptic_grid_generator'),
@@ -115,6 +160,10 @@ def generate_launch_description():
     # y local_mapper.
     nav_odometry = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(nav_odometry_launch),
+        launch_arguments={
+            'sensor_depth_min_m': str(_depth_min_m),
+            'sensor_depth_max_m': str(_depth_max_m),
+        }.items(),
     )
 
     # ── depth_obstacle_filter: depth + odometry → obstacle_cloud (odom frame) ──
@@ -122,6 +171,10 @@ def generate_launch_description():
     # (RANSAC) y publica obstacle_cloud + free_endpoints + sensor_pos.
     depth_obstacle_filter = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(depth_obstacle_filter_launch),
+        launch_arguments={
+            'sensor_depth_min_m': str(_depth_min_m),
+            'sensor_depth_max_m': str(_depth_max_m),
+        }.items(),
     )
 
     # ── local_mapper: obstacle_cloud → occupancy_grid ─────────────────────────
@@ -129,6 +182,9 @@ def generate_launch_description():
     # y construye el mapa de ocupación 2D incremental en frame odom.
     local_mapper = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(local_mapper_launch),
+        launch_arguments={
+            'sensor_depth_max_m': str(_depth_max_m),
+        }.items(),
     )
 
     # ── Depth-to-matrix encoder (pipeline: raw) ───────────
@@ -139,6 +195,7 @@ def generate_launch_description():
         name='depth_to_matrix',
         parameters=[
             LaunchConfiguration('params_file'),
+            {'z_min_m': _depth_min_m, 'z_max_m': _depth_max_m},
         ],
         output='screen',
         condition=IfCondition(PythonExpression(["'", pipeline_mode, "' == 'raw'"])),
@@ -156,6 +213,7 @@ def generate_launch_description():
         name='obstacle_grid_encoder',
         parameters=[
             obstacle_grid_cfg,
+            {'z_min_m': _depth_min_m, 'z_max_m': _depth_max_m},
         ],
         output='screen',
         condition=IfCondition(PythonExpression(["'", pipeline_mode, "' == 'filtered'"])),
@@ -205,22 +263,36 @@ def generate_launch_description():
         condition=IfCondition(use_rviz),
     )
 
-    # ── GPIO rosbag controller ────────────────────────────
-    gpio_recorder_actions = []
+    # ── rosbag_controller (always launched) ──────────────────────────────────
+    # rosbag_controller_node is hardware-agnostic: start/stop via service.
+    # gpio_button_node lives in hardware_manager and runs only with use_hw:=true.
+    recorder_actions = []
+    gpio_button_actions = []
     try:
         from ament_index_python.packages import get_package_share_directory as _gpsd
-        gpio_recorder_pkg_share = _gpsd('gpio_rosbag_controller')
-        gpio_recorder_launch_path = os.path.join(
-            gpio_recorder_pkg_share, 'launch', 'gpio_rosbag_controller.launch.py')
+        import os as _os
 
-        gpio_recorder_actions.append(IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(gpio_recorder_launch_path),
-            condition=IfCondition(use_gpio_recorder),
-            launch_arguments={}.items(),
+        recorder_pkg_share = _gpsd('rosbag_controller')
+        recorder_actions.append(IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                _os.path.join(recorder_pkg_share, 'launch', 'rosbag_controller.launch.py')),
         ))
     except Exception:
-        gpio_recorder_actions.append(
-            LogInfo(msg='gpio_rosbag_controller not found — skipping'))
+        recorder_actions.append(
+            LogInfo(msg='rosbag_controller not found — skipping'))
+
+    try:
+        from ament_index_python.packages import get_package_share_directory as _gpsd
+        import os as _os
+
+        hw_manager_pkg_share = _gpsd('hardware_manager')
+        gpio_button_actions.append(IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                _os.path.join(hw_manager_pkg_share, 'launch', 'gpio_button.launch.py')),
+            condition=IfCondition(use_hw),
+        ))
+    except Exception:
+        pass  # gpio_button is optional; hardware_manager may not have launch dir yet
 
     # ── Launch description ────────────────────────────────
     return LaunchDescription([
@@ -233,7 +305,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'use_hw',
             default_value='false',
-            description='Launch hardware_manager (UART motors)',
+            description='Launch hardware_manager (UART motors) and gpio_button_node',
         ),
         DeclareLaunchArgument(
             'hw_port',
@@ -251,11 +323,6 @@ def generate_launch_description():
             description='Launch RViz2 with local_mapper debug view',
         ),
         DeclareLaunchArgument(
-            'use_gpio_recorder',
-            default_value='true',
-            description='Launch GPIO rosbag controller (physical switch + LED)',
-        ),
-        DeclareLaunchArgument(
             'params_file',
             default_value=depth_to_matrix_cfg,
             description='Path to depth_to_matrix params YAML',
@@ -269,9 +336,27 @@ def generate_launch_description():
                 "'filtered' usa obstacle_grid_encoder (ObstacleCloud con ground removal)"
             ),
         ),
+        DeclareLaunchArgument(
+            'bag_path',
+            default_value='',
+            description=(
+                'Path to a rosbag to play instead of the live camera. '
+                'Empty string (default) selects the latest bag in ~/bags. '
+                'Only used when use_realsense:=false.'
+            ),
+        ),
+        DeclareLaunchArgument(
+            'use_bag',
+            default_value='false',
+            description='Play a rosbag instead of (or alongside) the live camera.',
+        ),
 
         # Nodes — in pipeline order
         *realsense_actions,
+        OpaqueFunction(
+            function=_resolve_bag_path,
+            condition=IfCondition(use_bag),
+        ),
         nav_odometry,
         depth_obstacle_filter,
         local_mapper,
@@ -282,5 +367,6 @@ def generate_launch_description():
         viz,
         rviz,
         odometry_path,
-        *gpio_recorder_actions,
+        *recorder_actions,
+        *gpio_button_actions,
     ])

@@ -1,11 +1,11 @@
-#include "gpio_rosbag_controller/gpio_interface.hpp"
+#include "hardware_manager/gpio_interface.hpp"
 
 #include <gpiod.h>
 
 #include <stdexcept>
 #include <string>
 
-namespace gpio_rosbag_controller
+namespace hardware_manager
 {
 
     GpioInterface::GpioInterface(
@@ -91,4 +91,4 @@ namespace gpio_rosbag_controller
         }
     }
 
-} // namespace gpio_rosbag_controller
+} // namespace hardware_manager

@@ -7,6 +7,4 @@ obstacle_grid_encoder:
     x_min_m: -1.0
     x_max_m:  1.0
     # Y fijo en el nodo: [-0.20, 2.20] m (el obstacle_cloud ya viene sin suelo ni techo)
-    # Filtro de profundidad Z (hacia adelante, metros)
-    z_min_m: 0.25
-    z_max_m: 5.0
+    # Filtro de profundidad Z (hacia adelante, metros) — definido en nav_bringup/config/sensor_range.yaml
