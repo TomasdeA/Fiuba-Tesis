@@ -62,6 +62,7 @@ def generate_launch_description():
     use_local_mapper   = LaunchConfiguration('use_local_mapper')
     use_viz            = LaunchConfiguration('use_viz')
     use_rviz           = LaunchConfiguration('use_rviz')
+    bag_record         = LaunchConfiguration('bag_record')
     hw_port            = LaunchConfiguration('hw_port')
     pipeline_mode      = LaunchConfiguration('pipeline_mode')
     bag_path           = LaunchConfiguration('bag_path')
@@ -286,7 +287,9 @@ def generate_launch_description():
         recorder_actions.append(IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 _os.path.join(recorder_pkg_share, 'launch', 'rosbag_controller.launch.py')),
-            condition=IfCondition(use_realsense),
+            condition=IfCondition(PythonExpression([
+                "'", use_realsense, "' == 'true' and '", bag_record, "' == 'true'"
+            ])),
         ))
     except Exception:
         recorder_actions.append(
@@ -301,7 +304,7 @@ def generate_launch_description():
             PythonLaunchDescriptionSource(
                 _os.path.join(hw_manager_pkg_share, 'launch', 'gpio_button.launch.py')),
             condition=IfCondition(PythonExpression([
-                "'", use_hw, "' == 'true' and '", use_realsense, "' == 'true'"
+                "'", use_hw, "' == 'true' and '", use_realsense, "' == 'true' and '", bag_record, "' == 'true'"
             ])),
         ))
     except Exception:
@@ -344,6 +347,11 @@ def generate_launch_description():
             'use_viz',
             default_value='false',
             description='Launch output_viewer heatmap',
+        ),
+        DeclareLaunchArgument(
+            'bag_record',
+            default_value='false',
+            description='Enable rosbag_controller and gpio_button launch',
         ),
         DeclareLaunchArgument(
             'use_rviz',
