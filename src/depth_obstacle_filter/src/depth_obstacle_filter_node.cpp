@@ -18,6 +18,8 @@
 //   /depth_obstacle_filter/debug/raw_cloud     — nube cruda en gravity_aligned_frame
 //   /depth_obstacle_filter/debug/ground_cloud  — suelo en gravity_aligned_frame
 //   /depth_obstacle_filter/debug/ceiling_cloud — techo descartado en gravity_aligned_frame
+//
+// Publica señal liviana de calibración:
 //   /depth_obstacle_filter/camera_height       — altura de cámara sobre el suelo (Float32)
 //
 // Publica TFs:
@@ -81,6 +83,14 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     debug_enabled_ = declare_parameter<bool>("debug", false);
     publish_local_mapper_interface_ =
         declare_parameter<bool>("publish_local_mapper_interface", false);
+    height_filter_alpha_ = static_cast<float>(
+        declare_parameter<double>("height_filter_alpha", 0.03));
+    height_max_step_m_ = static_cast<float>(
+        declare_parameter<double>("height_max_step_m", 0.005));
+    height_outlier_reject_m_ = static_cast<float>(
+        declare_parameter<double>("height_outlier_reject_m", 0.25));
+    height_publish_delta_m_ = static_cast<float>(
+        declare_parameter<double>("height_publish_delta_m", 0.05));
 
     // ── ImuFilter [LEGACY — E4] ───────────────────────────────────────────────
     // depth_obstacle_filter::ImuFilter::Config imu_cfg;
@@ -94,6 +104,9 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     obstacle_odom_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
         "/depth_obstacle_filter/obstacle_cloud", 10);
 
+    camera_height_pub_ = create_publisher<std_msgs::msg::Float32>(
+        "/depth_obstacle_filter/camera_height", rclcpp::QoS(1).transient_local());
+
     if (publish_local_mapper_interface_) {
       free_endpoints_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
           "/depth_obstacle_filter/free_endpoints", 10);
@@ -103,9 +116,6 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     }
 
     if (debug_enabled_) {
-      camera_height_pub_ = create_publisher<std_msgs::msg::Float32>(
-          "/depth_obstacle_filter/camera_height", rclcpp::QoS(1).transient_local());
-
       cloud_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
           "/depth_obstacle_filter/debug/depth_cloud", 10);
 
@@ -161,6 +171,63 @@ class DepthObstacleFilterNode : public rclcpp::Node {
           projector_->fx(), projector_->fy(),
           projector_->cx(), projector_->cy());
     }
+  }
+
+  bool updateCameraHeight(float raw_height_m) {
+    if (!std::isfinite(raw_height_m) ||
+        raw_height_m <= height_min_valid_m_ ||
+        raw_height_m >= height_max_valid_m_) {
+      return false;
+    }
+
+    if (!height_filter_initialized_) {
+      filtered_camera_height_m_ = raw_height_m;
+      floor_height_m_ = filtered_camera_height_m_;
+      height_filter_initialized_ = true;
+      return true;
+    }
+
+    const float delta = raw_height_m - filtered_camera_height_m_;
+    if (std::abs(delta) > height_outlier_reject_m_) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+          "[camera_height] medicion rechazada raw=%.3f filtrada=%.3f delta=%.3f",
+          raw_height_m, filtered_camera_height_m_, delta);
+      return false;
+    }
+
+    const float limited_step = std::clamp(
+        height_filter_alpha_ * delta,
+        -height_max_step_m_,
+        height_max_step_m_);
+    if (std::abs(limited_step) < 1e-4f) {
+      return false;
+    }
+
+    filtered_camera_height_m_ += limited_step;
+    floor_height_m_ = filtered_camera_height_m_;
+    return true;
+  }
+
+  void maybePublishCameraHeight() {
+    if (!height_filter_initialized_) return;
+
+    const bool first_publish = !height_publish_initialized_;
+    const float delta = std::abs(
+        filtered_camera_height_m_ - last_published_height_);
+    if (!first_publish && delta < height_publish_delta_m_) {
+      return;
+    }
+
+    std_msgs::msg::Float32 height_msg;
+    height_msg.data = filtered_camera_height_m_;
+    camera_height_pub_->publish(height_msg);
+    RCLCPP_INFO(get_logger(),
+        "[camera_height] raw/filtrada %.3f/%.3f m publicada (delta=%.3f m)",
+        ground_estimator_->cameraHeightM(),
+        filtered_camera_height_m_,
+        first_publish ? 0.0f : delta);
+    last_published_height_ = filtered_camera_height_m_;
+    height_publish_initialized_ = true;
   }
 
   // ── LEGACY: GravityAligner (E4) ──────────────────────────────────────────
@@ -241,6 +308,8 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     // Salida anticipada si nadie escucha (ahorra CPU en pruebas sin suscriptores).
     const bool has_obstacle_subs =
         obstacle_odom_pub_->get_subscription_count() > 0;
+    const bool has_height_subs =
+        camera_height_pub_->get_subscription_count() > 0;
     const bool has_local_mapper_subs = publish_local_mapper_interface_ &&
         ((free_endpoints_pub_ &&
           free_endpoints_pub_->get_subscription_count() > 0) ||
@@ -250,9 +319,9 @@ class DepthObstacleFilterNode : public rclcpp::Node {
         ((cloud_pub_ && cloud_pub_->get_subscription_count() > 0) ||
          (raw_cloud_pub_ && raw_cloud_pub_->get_subscription_count() > 0) ||
          (ground_pub_ && ground_pub_->get_subscription_count() > 0) ||
-         (ceiling_pub_ && ceiling_pub_->get_subscription_count() > 0) ||
-         (camera_height_pub_ && camera_height_pub_->get_subscription_count() > 0));
-    if (!has_obstacle_subs && !has_local_mapper_subs && !has_debug_subs) return;
+         (ceiling_pub_ && ceiling_pub_->get_subscription_count() > 0));
+    if (!has_obstacle_subs && !has_height_subs &&
+        !has_local_mapper_subs && !has_debug_subs) return;
 
     struct timespec t_total;
     struct timespec t_stage;
@@ -342,20 +411,8 @@ class DepthObstacleFilterNode : public rclcpp::Node {
       // ── Actualizar altura del suelo ───────────────────────────────────────
       if (ground_ok) {
         const float h = ground_estimator_->cameraHeightM();
-        if (h > 0.5f && h < 2.5f) {
-          floor_height_m_ = h;
-          if (camera_height_pub_ && camera_height_pub_->get_subscription_count() > 0) {
-            const float delta = std::abs(h - last_published_height_);
-            if (delta > 0.10f) {
-              std_msgs::msg::Float32 height_msg;
-              height_msg.data = h;
-              camera_height_pub_->publish(height_msg);
-              RCLCPP_INFO(get_logger(),
-                  "[camera_height] %.3f m publicado (delta=%.3f m)",
-                  h, delta);
-              last_published_height_ = h;
-            }
-          }
+        if (updateCameraHeight(h)) {
+          maybePublishCameraHeight();
         }
       }
 
@@ -642,7 +699,10 @@ class DepthObstacleFilterNode : public rclcpp::Node {
   float                                           odom_pos_x_{0.0f};
   float                                           odom_pos_z_{0.0f};
   float                                           floor_height_m_{0.0f};
+  float                                           filtered_camera_height_m_{0.0f};
   float                                           last_published_height_{0.0f};
+  bool                                            height_filter_initialized_{false};
+  bool                                            height_publish_initialized_{false};
   std::shared_ptr<tf2_ros::TransformBroadcaster>  tf_br_;
 
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr      depth_sub_;
@@ -670,6 +730,12 @@ class DepthObstacleFilterNode : public rclcpp::Node {
   double perf_log_period_s_ = 5.0;
   int empty_obstacle_warn_every_ = 5;
   int empty_obstacle_streak_ = 0;
+  float height_filter_alpha_ = 0.03f;
+  float height_max_step_m_ = 0.005f;
+  float height_outlier_reject_m_ = 0.25f;
+  float height_publish_delta_m_ = 0.05f;
+  float height_min_valid_m_ = 0.5f;
+  float height_max_valid_m_ = 2.5f;
   PerfAccum perf_accum_;
   PerfExtAccum perf_ext_;
   rclcpp::Time last_perf_log_;

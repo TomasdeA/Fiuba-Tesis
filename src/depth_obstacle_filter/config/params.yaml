@@ -10,6 +10,13 @@ depth_obstacle_filter:
     # Rango de profundidad válido (metros) — definido en nav_bringup/config/sensor_range.yaml
     debug: false
     publish_local_mapper_interface: false
+    # Altura de cámara usada por obstacle_grid_encoder para fijar y_max.
+    # La cámara va montada a altura casi fija: filtrar fuerte evita que el
+    # heatmap cambie por jitter del estimador de suelo.
+    height_filter_alpha: 0.03
+    height_max_step_m: 0.005
+    height_outlier_reject_m: 0.25
+    height_publish_delta_m: 0.05
 
     # ── GroundEstimator ─────────────────────────────────────────────────
     # Tamaño de celda del voxel grid de downsampling (m)

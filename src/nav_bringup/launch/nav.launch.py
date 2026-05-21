@@ -344,7 +344,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'debug',
             default_value='false',
-            description='Publish non-essential debug topics (raw/aligned/ground/ceiling clouds, camera height)',
+            description='Publish non-essential debug topics (raw/aligned/ground/ceiling clouds)',
         ),
         DeclareLaunchArgument(
             'hw_port',
