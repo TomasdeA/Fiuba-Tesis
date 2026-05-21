@@ -1,10 +1,13 @@
 #include <rclcpp/rclcpp.hpp>
+#include <algorithm>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
 #include <std_msgs/msg/float32.hpp>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <limits>
+#include <time.h>
 
 #include "depth_grid_encoder/depth_utils.hpp"
 
@@ -19,7 +22,7 @@ using namespace std::chrono_literals;
 //
 // Eje Y: origen en la cámara (montada en la cabeza del usuario).
 //   y_min = -0.20 m  (guardia de seguridad — el obstacle_cloud ya tiene techo removido)
-//   y_max = se actualiza desde /local_mapper/camera_height (calibración de altura).
+//   y_max = se actualiza desde /depth_obstacle_filter/camera_height (calibración de altura).
 //           Valor inicial conservador de 2.20 m hasta recibir la primera calibración.
 // El obstacle_cloud ya tiene el suelo y el techo removidos por local_mapper;
 // estos límites actúan únicamente como guardia ante puntos espurios.
@@ -41,14 +44,17 @@ public:
 
         x_min_ = static_cast<float>(this->declare_parameter<double>("x_min_m", -3.0));
         x_max_ = static_cast<float>(this->declare_parameter<double>("x_max_m",  3.0));
+        perf_log_enabled_ = this->declare_parameter<bool>("perf_log_enabled", false);
+        perf_log_period_s_ = this->declare_parameter<double>("perf_log_period_s", 5.0);
+        empty_grid_warn_every_ = this->declare_parameter<int>("empty_grid_warn_every", 5);
 
         // Y: límites de seguridad. y_max se actualiza al recibir la altura de la cámara
         // publicada por local_mapper tras la calibración inicial.
         y_min_ = -0.20f;  // 20 cm por encima de la cámara (guardia fija)
-        y_max_ =  2.20f;  // conservador hasta recibir /local_mapper/camera_height
+        y_max_ =  2.20f;  // conservador hasta recibir /depth_obstacle_filter/camera_height
 
         height_sub_ = this->create_subscription<std_msgs::msg::Float32>(
-            "/local_mapper/camera_height",
+            "/depth_obstacle_filter/camera_height",
             rclcpp::QoS(1).transient_local(),
             [this](std_msgs::msg::Float32::SharedPtr msg) {
                 const float new_y_max = msg->data + 0.10f;  // +10 cm margen bajo el suelo
@@ -81,12 +87,40 @@ public:
             x_min_, x_max_, y_min_, y_max_,
             cfg_.z_min_m, cfg_.z_max_m,
             cloud_topic_.c_str());
+        last_perf_log_ = get_clock()->now();
     }
 
 private:
+    struct PerfWindow {
+        int frames = 0;
+        int empty_grids = 0;
+        double sum_total_ms = 0.0;
+        double max_total_ms = 0.0;
+        double sum_msg_age_ms = 0.0;
+        uint64_t sum_points_in = 0;
+        uint64_t sum_kept = 0;
+        uint64_t sum_drop_invalid = 0;
+        uint64_t sum_drop_z = 0;
+        uint64_t sum_drop_x = 0;
+        uint64_t sum_drop_y = 0;
+        uint64_t sum_nonempty_cells = 0;
+
+        void reset() { *this = PerfWindow{}; }
+    };
+
+    static double elapsedMs(const struct timespec & start)
+    {
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        return (now.tv_sec - start.tv_sec) * 1000.0 +
+               (now.tv_nsec - start.tv_nsec) / 1e6;
+    }
+
     void onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg)
     {
         ++cloud_count_;
+        struct timespec t0;
+        clock_gettime(CLOCK_MONOTONIC, &t0);
 
         const int rows = cfg_.rows;
         const int cols = cfg_.cols;
@@ -100,6 +134,13 @@ private:
 
         const float x_range = x_max_ - x_min_;
         const float y_range = y_max_ - y_min_;
+        const uint64_t points_in = static_cast<uint64_t>(msg->width) *
+                                   static_cast<uint64_t>(msg->height);
+        uint64_t kept = 0;
+        uint64_t drop_invalid = 0;
+        uint64_t drop_z = 0;
+        uint64_t drop_x = 0;
+        uint64_t drop_y = 0;
 
         try {
             sensor_msgs::PointCloud2ConstIterator<float> iter_x(*msg, "x");
@@ -113,18 +154,30 @@ private:
                 const float pz = *iter_z;
 
                 // Descartar puntos con coordenadas inválidas (NaN/Inf)
-                if (!std::isfinite(px) || !std::isfinite(py) || !std::isfinite(pz)) continue;
+                if (!std::isfinite(px) || !std::isfinite(py) || !std::isfinite(pz)) {
+                    ++drop_invalid;
+                    continue;
+                }
 
                 // Filtro sobre Z (profundidad frontal)
-                if (pz < cfg_.z_min_m || pz > cfg_.z_max_m) continue;
+                if (pz < cfg_.z_min_m || pz > cfg_.z_max_m) {
+                    ++drop_z;
+                    continue;
+                }
 
                 // Mapear X →  columna
-                if (px < x_min_ || px >= x_max_) continue;
+                if (px < x_min_ || px >= x_max_) {
+                    ++drop_x;
+                    continue;
+                }
                 const int c = static_cast<int>((px - x_min_) / x_range * cols);
                 if (c < 0 || c >= cols) continue;
 
                 // Mapear Y → fila (invertido: Y crece hacia abajo, fila 0 = suelo/y_max)
-                if (py < y_min_ || py >= y_max_) continue;
+                if (py < y_min_ || py >= y_max_) {
+                    ++drop_y;
+                    continue;
+                }
                 const int r_raw = static_cast<int>((py - y_min_) / y_range * rows);
                 if (r_raw < 0 || r_raw >= rows) continue;
                 const int r = (rows - 1) - r_raw;
@@ -136,6 +189,7 @@ private:
                 if (dist > z_max[idx]) z_max[idx] = dist;
                 z_sum[idx] += dist;
                 ++z_cnt[idx];
+                ++kept;
             }
         } catch (const std::runtime_error & e) {
             RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
@@ -147,12 +201,14 @@ private:
         custom_interfaces::msg::DepthGrid grid;
         tesis_nav::allocate(grid, static_cast<uint32_t>(rows), static_cast<uint32_t>(cols));
         grid.header = msg->header;
+        int nonempty_cells = 0;
 
         for (int r = 0; r < rows; ++r) {
             for (int c = 0; c < cols; ++c) {
                 const int idx = r * cols + c;
                 auto & cell = tesis_nav::at(grid, static_cast<size_t>(r), static_cast<size_t>(c));
                 if (z_cnt[idx] > 0) {
+                    ++nonempty_cells;
                     cell.min_m  = z_min[idx];
                     cell.max_m  = z_max[idx];
                     cell.mean_m = static_cast<float>(z_sum[idx] / z_cnt[idx]);
@@ -168,6 +224,67 @@ private:
 
         grid_pub_->publish(grid);
 
+        const bool empty_grid = (nonempty_cells == 0);
+        perf_window_.frames++;
+        perf_window_.sum_points_in += points_in;
+        perf_window_.sum_kept += kept;
+        perf_window_.sum_drop_invalid += drop_invalid;
+        perf_window_.sum_drop_z += drop_z;
+        perf_window_.sum_drop_x += drop_x;
+        perf_window_.sum_drop_y += drop_y;
+        perf_window_.sum_nonempty_cells += static_cast<uint64_t>(nonempty_cells);
+        if (empty_grid) {
+            ++perf_window_.empty_grids;
+            ++empty_grid_streak_;
+        } else {
+            empty_grid_streak_ = 0;
+        }
+
+        const auto now_ros = get_clock()->now();
+        const auto msg_stamp = rclcpp::Time(msg->header.stamp);
+        const double msg_age_ms = (now_ros - msg_stamp).nanoseconds() / 1e6;
+        const double total_ms = elapsedMs(t0);
+        perf_window_.sum_msg_age_ms += msg_age_ms;
+        perf_window_.sum_total_ms += total_ms;
+        perf_window_.max_total_ms = std::max(perf_window_.max_total_ms, total_ms);
+
+        if (empty_grid &&
+            (empty_grid_streak_ == 1 || empty_grid_streak_ % empty_grid_warn_every_ == 0)) {
+            RCLCPP_WARN(get_logger(),
+                "[empty_grid] streak=%d points_in=%llu kept=%llu drop_invalid=%llu drop_z=%llu drop_x=%llu drop_y=%llu age=%.1fms",
+                empty_grid_streak_,
+                static_cast<unsigned long long>(points_in),
+                static_cast<unsigned long long>(kept),
+                static_cast<unsigned long long>(drop_invalid),
+                static_cast<unsigned long long>(drop_z),
+                static_cast<unsigned long long>(drop_x),
+                static_cast<unsigned long long>(drop_y),
+                msg_age_ms);
+        }
+
+        if (perf_log_enabled_ &&
+            (now_ros - last_perf_log_).seconds() >= perf_log_period_s_ &&
+            perf_window_.frames > 0) {
+            const double nf = static_cast<double>(perf_window_.frames);
+            RCLCPP_INFO(get_logger(),
+                "[PERF %.1fs] frames=%d empty=%d avg_total=%.2fms max_total=%.2fms avg_age=%.1fms avg_points_in=%.0f avg_kept=%.0f avg_cells=%.1f drops(inv/z/x/y)=%.0f/%.0f/%.0f/%.0f",
+                perf_log_period_s_,
+                perf_window_.frames,
+                perf_window_.empty_grids,
+                perf_window_.sum_total_ms / nf,
+                perf_window_.max_total_ms,
+                perf_window_.sum_msg_age_ms / nf,
+                static_cast<double>(perf_window_.sum_points_in) / nf,
+                static_cast<double>(perf_window_.sum_kept) / nf,
+                static_cast<double>(perf_window_.sum_nonempty_cells) / nf,
+                static_cast<double>(perf_window_.sum_drop_invalid) / nf,
+                static_cast<double>(perf_window_.sum_drop_z) / nf,
+                static_cast<double>(perf_window_.sum_drop_x) / nf,
+                static_cast<double>(perf_window_.sum_drop_y) / nf);
+            perf_window_.reset();
+            last_perf_log_ = now_ros;
+        }
+
         RCLCPP_DEBUG_THROTTLE(get_logger(), *get_clock(), 1000,
             "nube procesada | puntos=%u | stamp=%u.%u",
             msg->width * msg->height,
@@ -177,8 +294,14 @@ private:
     std::string cloud_topic_;
     tesis_nav::GridConfig cfg_;
     float x_min_, x_max_, y_min_, y_max_;
+    bool perf_log_enabled_ = false;
+    double perf_log_period_s_ = 5.0;
+    int empty_grid_warn_every_ = 5;
 
     size_t cloud_count_ = 0;
+    int empty_grid_streak_ = 0;
+    PerfWindow perf_window_;
+    rclcpp::Time last_perf_log_{0, 0, RCL_ROS_TIME};
 
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
     rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr         height_sub_;

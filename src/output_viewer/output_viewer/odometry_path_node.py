@@ -47,7 +47,7 @@ class OdometryPathNode(Node):
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
         )
         self._height_sub = self.create_subscription(
-            Float32, '/local_mapper/camera_height', self._on_camera_height, qos_latch
+            Float32, '/depth_obstacle_filter/camera_height', self._on_camera_height, qos_latch
         )
 
         self.get_logger().info('odometry_path: suscrito a nav_odom → /debug/odom_path')

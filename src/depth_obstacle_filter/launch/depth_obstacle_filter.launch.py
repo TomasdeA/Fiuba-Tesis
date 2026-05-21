@@ -45,7 +45,13 @@ def generate_launch_description():
             name='depth_obstacle_filter',
             parameters=[
                 params_file,
-                {'range_min_m': depth_min, 'range_max_m': depth_max},
+                {
+                    'range_min_m': depth_min,
+                    'range_max_m': depth_max,
+                    'debug': context.launch_configurations.get('debug', 'false').lower() == 'true',
+                    'publish_local_mapper_interface': context.launch_configurations.get(
+                        'publish_local_mapper_interface', 'false').lower() == 'true',
+                },
             ],
             remappings=[
                 ('depth/image',       hw_depth),
@@ -66,6 +72,16 @@ def generate_launch_description():
             'sensor_depth_max_m',
             default_value=str(_default_max),
             description='Distancia máxima válida del sensor [m] (fuente: sensor_range.yaml)',
+        ),
+        DeclareLaunchArgument(
+            'debug',
+            default_value='false',
+            description='Publicar topics debug no vitales',
+        ),
+        DeclareLaunchArgument(
+            'publish_local_mapper_interface',
+            default_value='false',
+            description='Publicar free_endpoints y sensor_pos para local_mapper',
         ),
         OpaqueFunction(function=_make_node),
     ])

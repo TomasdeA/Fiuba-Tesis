@@ -60,6 +60,7 @@ def generate_launch_description():
     use_perception     = LaunchConfiguration('use_perception')
     use_visual_odometry = LaunchConfiguration('use_visual_odometry')
     use_local_mapper   = LaunchConfiguration('use_local_mapper')
+    debug              = LaunchConfiguration('debug')
     use_viz            = LaunchConfiguration('use_viz')
     use_rviz           = LaunchConfiguration('use_rviz')
     bag_record         = LaunchConfiguration('bag_record')
@@ -181,6 +182,8 @@ def generate_launch_description():
         launch_arguments={
             'sensor_depth_min_m': str(_depth_min_m),
             'sensor_depth_max_m': str(_depth_max_m),
+            'debug': debug,
+            'publish_local_mapper_interface': use_local_mapper,
         }.items(),
         condition=IfCondition(PythonExpression([
             "'", use_perception, "' == 'true' and '", pipeline_mode, "' == 'filtered'"
@@ -337,6 +340,11 @@ def generate_launch_description():
             'use_local_mapper',
             default_value='false',
             description='Launch local_mapper (occupancy grid builder)',
+        ),
+        DeclareLaunchArgument(
+            'debug',
+            default_value='false',
+            description='Publish non-essential debug topics (raw/aligned/ground/ceiling clouds, camera height)',
         ),
         DeclareLaunchArgument(
             'hw_port',

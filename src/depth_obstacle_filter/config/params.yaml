@@ -8,6 +8,8 @@ depth_obstacle_filter:
     # imu_topic:       "/camera/camera/imu"  # LEGACY: E4
 
     # Rango de profundidad válido (metros) — definido en nav_bringup/config/sensor_range.yaml
+    debug: false
+    publish_local_mapper_interface: false
 
     # ── GroundEstimator ─────────────────────────────────────────────────
     # Tamaño de celda del voxel grid de downsampling (m)

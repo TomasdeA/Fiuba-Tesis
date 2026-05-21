@@ -5,13 +5,15 @@
 //            depth/camera_info (sensor_msgs/CameraInfo)
 //            nav_odom     (nav_msgs/Odometry) — orientación VIO de nav_odometry
 //
-// Publica (interface con local_mapper — tres topics sincronizados por stamp):
+// Publica:
 //   /depth_obstacle_filter/obstacle_cloud  — obstáculos en frame odom (PointCloud2 XYZ)
+//
+// Publica sólo con publish_local_mapper_interface=true:
 //   /depth_obstacle_filter/free_endpoints  — endpoints de rayos libres en frame odom
 //   /depth_obstacle_filter/sensor_pos      — posición de la cámara en odom (PointStamped)
 //                                            point.y = altura estimada del suelo (m)
 //
-// Publica (debug / visualización):
+// Publica sólo con debug=true:
 //   /depth_obstacle_filter/debug/depth_cloud   — nube cruda en camera_depth_optical_frame
 //   /depth_obstacle_filter/debug/raw_cloud     — nube cruda en gravity_aligned_frame
 //   /depth_obstacle_filter/debug/ground_cloud  — suelo en gravity_aligned_frame
@@ -30,6 +32,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <rclcpp/rclcpp.hpp>
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <limits>
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
@@ -41,6 +46,7 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <std_msgs/msg/float32.hpp>
 #include <tf2_ros/transform_broadcaster.h>
+#include <time.h>
 
 #include "depth_obstacle_filter/depth_projector.hpp"
 #include "depth_obstacle_filter/gravity_aligner.hpp"
@@ -69,6 +75,12 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     ge_cfg.ceiling_delta_m = static_cast<float>(
         declare_parameter<double>("ceiling_delta_m", 0.1));
     ground_estimator_ = std::make_unique<depth_obstacle_filter::GroundEstimator>(ge_cfg);
+    perf_log_enabled_ = declare_parameter<bool>("perf_log_enabled", false);
+    perf_log_period_s_ = declare_parameter<double>("perf_log_period_s", 5.0);
+    empty_obstacle_warn_every_ = declare_parameter<int>("empty_obstacle_warn_every", 5);
+    debug_enabled_ = declare_parameter<bool>("debug", false);
+    publish_local_mapper_interface_ =
+        declare_parameter<bool>("publish_local_mapper_interface", false);
 
     // ── ImuFilter [LEGACY — E4] ───────────────────────────────────────────────
     // depth_obstacle_filter::ImuFilter::Config imu_cfg;
@@ -78,32 +90,34 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     // ── TF broadcaster ───────────────────────────────────────────────────────
     tf_br_ = std::make_shared<tf2_ros::TransformBroadcaster>(this);
 
-    // ── Publicadores — interface con local_mapper ─────────────────────────────
+    // ── Publicadores principales ─────────────────────────────
     obstacle_odom_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
         "/depth_obstacle_filter/obstacle_cloud", 10);
 
-    free_endpoints_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
-        "/depth_obstacle_filter/free_endpoints", 10);
+    if (publish_local_mapper_interface_) {
+      free_endpoints_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
+          "/depth_obstacle_filter/free_endpoints", 10);
 
-    sensor_pos_pub_ = create_publisher<geometry_msgs::msg::PointStamped>(
-        "/depth_obstacle_filter/sensor_pos", 10);
+      sensor_pos_pub_ = create_publisher<geometry_msgs::msg::PointStamped>(
+          "/depth_obstacle_filter/sensor_pos", 10);
+    }
 
-    // ── Publicadores — debug / visualización ─────────────────────────────────
-    cloud_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
-        "/depth_obstacle_filter/debug/depth_cloud", 10);
+    if (debug_enabled_) {
+      camera_height_pub_ = create_publisher<std_msgs::msg::Float32>(
+          "/depth_obstacle_filter/camera_height", rclcpp::QoS(1).transient_local());
 
-    raw_cloud_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
-        "/depth_obstacle_filter/debug/raw_cloud", 10);
+      cloud_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
+          "/depth_obstacle_filter/debug/depth_cloud", 10);
 
-    ground_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
-        "/depth_obstacle_filter/debug/ground_cloud", 10);
+      raw_cloud_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
+          "/depth_obstacle_filter/debug/raw_cloud", 10);
 
-    ceiling_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
-        "/depth_obstacle_filter/debug/ceiling_cloud", 10);
+      ground_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
+          "/depth_obstacle_filter/debug/ground_cloud", 10);
 
-    // Altura de la cámara sobre el suelo (calibración, QoS transient_local).
-    camera_height_pub_ = create_publisher<std_msgs::msg::Float32>(
-        "/depth_obstacle_filter/camera_height", rclcpp::QoS(1).transient_local());
+      ceiling_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
+          "/depth_obstacle_filter/debug/ceiling_cloud", 10);
+    }
 
     // ── Suscriptores ──────────────────────────────────────────────────────────
     depth_sub_ = create_subscription<sensor_msgs::msg::Image>(
@@ -124,12 +138,21 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     //     std::bind(&DepthObstacleFilterNode::onImu, this, _1));
 
     RCLCPP_INFO(get_logger(),
-        "DepthObstacleFilterNode listo. range=[%.2f, %.2f]m",
-        range_min_m_, range_max_m_);
+        "DepthObstacleFilterNode listo. range=[%.2f, %.2f]m debug=%s local_mapper_interface=%s",
+        range_min_m_, range_max_m_,
+        debug_enabled_ ? "true" : "false",
+        publish_local_mapper_interface_ ? "true" : "false");
     last_perf_log_ = get_clock()->now();
   }
 
  private:
+  static double elapsedMs(const struct timespec& start) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (now.tv_sec - start.tv_sec) * 1000.0 +
+           (now.tv_nsec - start.tv_nsec) / 1e6;
+  }
+
   void onCameraInfo(const sensor_msgs::msg::CameraInfo::SharedPtr msg) {
     if (!projector_) {
       projector_ = std::make_unique<depth_obstacle_filter::DepthProjector>(*msg);
@@ -215,19 +238,32 @@ class DepthObstacleFilterNode : public rclcpp::Node {
       return;
     }
 
-    // Salida anticipada si nadie escucha (ahorra CPU en pruebas sin suscriptores)
-    if (cloud_pub_->get_subscription_count() == 0 &&
-        raw_cloud_pub_->get_subscription_count() == 0 &&
-        ground_pub_->get_subscription_count() == 0 &&
-        obstacle_odom_pub_->get_subscription_count() == 0 &&
-        free_endpoints_pub_->get_subscription_count() == 0 &&
-        sensor_pos_pub_->get_subscription_count() == 0 &&
-        ceiling_pub_->get_subscription_count() == 0) return;
+    // Salida anticipada si nadie escucha (ahorra CPU en pruebas sin suscriptores).
+    const bool has_obstacle_subs =
+        obstacle_odom_pub_->get_subscription_count() > 0;
+    const bool has_local_mapper_subs = publish_local_mapper_interface_ &&
+        ((free_endpoints_pub_ &&
+          free_endpoints_pub_->get_subscription_count() > 0) ||
+         (sensor_pos_pub_ &&
+          sensor_pos_pub_->get_subscription_count() > 0));
+    const bool has_debug_subs = debug_enabled_ &&
+        ((cloud_pub_ && cloud_pub_->get_subscription_count() > 0) ||
+         (raw_cloud_pub_ && raw_cloud_pub_->get_subscription_count() > 0) ||
+         (ground_pub_ && ground_pub_->get_subscription_count() > 0) ||
+         (ceiling_pub_ && ceiling_pub_->get_subscription_count() > 0) ||
+         (camera_height_pub_ && camera_height_pub_->get_subscription_count() > 0));
+    if (!has_obstacle_subs && !has_local_mapper_subs && !has_debug_subs) return;
+
+    struct timespec t_total;
+    struct timespec t_stage;
+    clock_gettime(CLOCK_MONOTONIC, &t_total);
 
     // ── Retroproyección ───────────────────────────────────────────────────────
+    clock_gettime(CLOCK_MONOTONIC, &t_stage);
     const auto* depth_data = reinterpret_cast<const uint16_t*>(msg->data.data());
     auto points = projector_->projectDepthImage(
         depth_data, msg->width, msg->height);
+    const double t_project_ms = elapsedMs(t_stage);
 
     // ── Filtrado de rango ─────────────────────────────────────────────────────
     // Puntos en [range_min_m_, range_max_m_) → 'valid' (obstáculos y suelo posibles).
@@ -237,25 +273,38 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     valid.reserve(points.size() / 4);
     std::vector<depth_obstacle_filter::DepthProjector::Point3D> beyond_range_pts;
     int beyond_stride_counter = 0;
+    int nan_count = 0;
+    int below_min_count = 0;
+    int beyond_count = 0;
+    clock_gettime(CLOCK_MONOTONIC, &t_stage);
     for (const auto& pt : points) {
-      if (std::isnan(pt.z)) continue;
-      if (pt.z <= range_min_m_) continue;
+      if (std::isnan(pt.z)) {
+        ++nan_count;
+        continue;
+      }
+      if (pt.z <= range_min_m_) {
+        ++below_min_count;
+        continue;
+      }
       if (pt.z >= range_max_m_) {
-        if ((beyond_stride_counter++ & 15) == 0) {
+        ++beyond_count;
+        if (publish_local_mapper_interface_ &&
+            (beyond_stride_counter++ & 15) == 0) {
           beyond_range_pts.push_back(pt);
         }
         continue;
       }
       valid.push_back(pt);
     }
+    const double t_range_ms = elapsedMs(t_stage);
 
     // ── Debug: nube cruda en camera_depth_optical_frame ──────────────────────
-    if (cloud_pub_->get_subscription_count() > 0) {
+    if (cloud_pub_ && cloud_pub_->get_subscription_count() > 0) {
       publishCloud(cloud_pub_, msg->header, valid);
     }
 
     // ── Debug: nube cruda en gravity_aligned_frame (oscila al inclinar) ───────
-    if (raw_cloud_pub_->get_subscription_count() > 0) {
+    if (raw_cloud_pub_ && raw_cloud_pub_->get_subscription_count() > 0) {
       std_msgs::msg::Header raw_hdr;
       raw_hdr.stamp    = msg->header.stamp;
       raw_hdr.frame_id = "gravity_aligned_frame";
@@ -264,6 +313,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
 
     // ── Estimación del suelo y publicación de nubes de salida ─────────────────
     {
+      clock_gettime(CLOCK_MONOTONIC, &t_stage);
       // Rotar a gravity_aligned_frame con la orientación VIO cacheada.
       std::vector<depth_obstacle_filter::GroundEstimator::Point3D> ge_cloud;
       ge_cloud.reserve(valid.size());
@@ -273,17 +323,18 @@ class DepthObstacleFilterNode : public rclcpp::Node {
       }
 
       const bool ground_ok = ground_estimator_->estimate(ge_cloud);
+      const double t_ground_ms = elapsedMs(t_stage);
 
       std_msgs::msg::Header aligned_hdr;
       aligned_hdr.stamp    = msg->header.stamp;
       aligned_hdr.frame_id = "gravity_aligned_frame";
 
-      if (ground_pub_->get_subscription_count() > 0) {
+      if (ground_pub_ && ground_pub_->get_subscription_count() > 0) {
         publishIndexedCloud(ground_pub_, aligned_hdr, ge_cloud,
                             ground_estimator_->groundIndices());
       }
 
-      if (ceiling_pub_->get_subscription_count() > 0) {
+      if (ceiling_pub_ && ceiling_pub_->get_subscription_count() > 0) {
         publishIndexedCloud(ceiling_pub_, aligned_hdr, ge_cloud,
                             ground_estimator_->ceilingIndices());
       }
@@ -293,7 +344,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
         const float h = ground_estimator_->cameraHeightM();
         if (h > 0.5f && h < 2.5f) {
           floor_height_m_ = h;
-          if (camera_height_pub_->get_subscription_count() > 0) {
+          if (camera_height_pub_ && camera_height_pub_->get_subscription_count() > 0) {
             const float delta = std::abs(h - last_published_height_);
             if (delta > 0.10f) {
               std_msgs::msg::Float32 height_msg;
@@ -313,6 +364,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
       // local_mapper garantiza que cada actualización del mapa usa exactamente
       // los datos del mismo frame de profundidad.
       {
+        clock_gettime(CLOCK_MONOTONIC, &t_stage);
         std_msgs::msg::Header odom_hdr;
         odom_hdr.stamp    = msg->header.stamp;
         odom_hdr.frame_id = "odom";
@@ -332,10 +384,10 @@ class DepthObstacleFilterNode : public rclcpp::Node {
           publishCloud(obstacle_odom_pub_, odom_hdr, obs_odom);
         }
 
-        // Endpoints de rayos libres → frame odom (suelo + techo submuestreado
-        // 1/4, más puntos más allá del rango submuestreados 1/16).
-        // En odom frame: Y=0 (solo XZ importa para el mapa 2D).
-        {
+        if (publish_local_mapper_interface_) {
+          // Endpoints de rayos libres → frame odom (suelo + techo submuestreado
+          // 1/4, más puntos más allá del rango submuestreados 1/16).
+          // En odom frame: Y=0 (solo XZ importa para el mapa 2D).
           std::vector<depth_obstacle_filter::DepthProjector::Point3D> free_odom;
 
           const auto addFreeFromIndices =
@@ -362,19 +414,107 @@ class DepthObstacleFilterNode : public rclcpp::Node {
                 {p_odom.x + odom_pos_x_, 0.f, p_odom.z + odom_pos_z_});
           }
           publishCloud(free_endpoints_pub_, odom_hdr, free_odom);
+
+          // Posición del sensor en odom.
+          // point.x/z = posición XZ en odom.
+          // point.y   = altura del suelo sobre la cámara (m); 0 si no detectado.
+          //             local_mapper la usa para colocar el OccupancyGrid a la
+          //             altura correcta del suelo en RViz.
+          geometry_msgs::msg::PointStamped sensor_pos_msg;
+          sensor_pos_msg.header = odom_hdr;
+          sensor_pos_msg.point.x = static_cast<double>(odom_pos_x_);
+          sensor_pos_msg.point.y = static_cast<double>(floor_height_m_);
+          sensor_pos_msg.point.z = static_cast<double>(odom_pos_z_);
+          sensor_pos_pub_->publish(sensor_pos_msg);
         }
 
-        // Posición del sensor en odom.
-        // point.x/z = posición XZ en odom.
-        // point.y   = altura del suelo sobre la cámara (m); 0 si no detectado.
-        //             local_mapper la usa para colocar el OccupancyGrid a la
-        //             altura correcta del suelo en RViz.
-        geometry_msgs::msg::PointStamped sensor_pos_msg;
-        sensor_pos_msg.header = odom_hdr;
-        sensor_pos_msg.point.x = static_cast<double>(odom_pos_x_);
-        sensor_pos_msg.point.y = static_cast<double>(floor_height_m_);
-        sensor_pos_msg.point.z = static_cast<double>(odom_pos_z_);
-        sensor_pos_pub_->publish(sensor_pos_msg);
+        const double t_publish_ms = elapsedMs(t_stage);
+        const double t_total_ms = elapsedMs(t_total);
+        const auto now = get_clock()->now();
+        const auto msg_stamp = rclcpp::Time(msg->header.stamp);
+        const double msg_age_ms = (now - msg_stamp).nanoseconds() / 1e6;
+        const size_t obs_count = ground_estimator_->obstacleIndices().size();
+        const size_t ground_count = ground_estimator_->groundIndices().size();
+        const size_t ceiling_count = ground_estimator_->ceilingIndices().size();
+
+        perf_ext_.frames++;
+        perf_ext_.sum_project_ms += t_project_ms;
+        perf_ext_.max_project_ms = std::max(perf_ext_.max_project_ms, t_project_ms);
+        perf_ext_.sum_range_ms += t_range_ms;
+        perf_ext_.max_range_ms = std::max(perf_ext_.max_range_ms, t_range_ms);
+        perf_ext_.sum_ground_ms += t_ground_ms;
+        perf_ext_.max_ground_ms = std::max(perf_ext_.max_ground_ms, t_ground_ms);
+        perf_ext_.sum_publish_ms += t_publish_ms;
+        perf_ext_.max_publish_ms = std::max(perf_ext_.max_publish_ms, t_publish_ms);
+        perf_ext_.sum_total_ms += t_total_ms;
+        perf_ext_.max_total_ms = std::max(perf_ext_.max_total_ms, t_total_ms);
+        perf_ext_.sum_age_ms += msg_age_ms;
+        perf_ext_.sum_points_projected += points.size();
+        perf_ext_.sum_valid += valid.size();
+        perf_ext_.sum_beyond += beyond_range_pts.size();
+        perf_ext_.sum_nan += nan_count;
+        perf_ext_.sum_below_min += below_min_count;
+        perf_ext_.sum_beyond_raw += beyond_count;
+        perf_ext_.sum_obstacles += obs_count;
+        perf_ext_.sum_ground += ground_count;
+        perf_ext_.sum_ceiling += ceiling_count;
+
+        if (obs_count == 0) {
+          ++empty_obstacle_streak_;
+          ++perf_ext_.empty_obstacle_frames;
+          if (empty_obstacle_streak_ == 1 ||
+              empty_obstacle_streak_ % empty_obstacle_warn_every_ == 0) {
+            RCLCPP_WARN(get_logger(),
+                "[empty_obstacles] streak=%d age=%.1fms projected=%zu valid=%zu nan=%d below_min=%d beyond_raw=%d beyond_kept=%zu ground_ok=%d ground=%zu ceiling=%zu",
+                empty_obstacle_streak_,
+                msg_age_ms,
+                points.size(),
+                valid.size(),
+                nan_count,
+                below_min_count,
+                beyond_count,
+                beyond_range_pts.size(),
+                ground_ok ? 1 : 0,
+                ground_count,
+                ceiling_count);
+          }
+        } else {
+          empty_obstacle_streak_ = 0;
+        }
+
+        if (perf_log_enabled_ &&
+            (now - last_perf_log_).seconds() >= perf_log_period_s_ &&
+            perf_ext_.frames > 0) {
+          const double nf = static_cast<double>(perf_ext_.frames);
+          const auto& a = perf_accum_;
+          RCLCPP_INFO(get_logger(),
+              "[PERF %.1fs] frames=%d empty_obs=%d age=%.1fms | proj=%.2f/%.2fms range=%.2f/%.2fms ground=%.2f/%.2fms publish=%.2f/%.2fms total=%.2f/%.2fms | pts proj=%.0f valid=%.0f beyond=%.0f nan=%.0f below=%.0f beyond_raw=%.0f obs=%.0f ground=%.0f ceil=%.0f | GE total=%.2fms voxel=%.2fms ransac=%.2fms refine=%.2fms",
+              perf_log_period_s_,
+              perf_ext_.frames,
+              perf_ext_.empty_obstacle_frames,
+              perf_ext_.sum_age_ms / nf,
+              perf_ext_.sum_project_ms / nf, perf_ext_.max_project_ms,
+              perf_ext_.sum_range_ms / nf, perf_ext_.max_range_ms,
+              perf_ext_.sum_ground_ms / nf, perf_ext_.max_ground_ms,
+              perf_ext_.sum_publish_ms / nf, perf_ext_.max_publish_ms,
+              perf_ext_.sum_total_ms / nf, perf_ext_.max_total_ms,
+              static_cast<double>(perf_ext_.sum_points_projected) / nf,
+              static_cast<double>(perf_ext_.sum_valid) / nf,
+              static_cast<double>(perf_ext_.sum_beyond) / nf,
+              static_cast<double>(perf_ext_.sum_nan) / nf,
+              static_cast<double>(perf_ext_.sum_below_min) / nf,
+              static_cast<double>(perf_ext_.sum_beyond_raw) / nf,
+              static_cast<double>(perf_ext_.sum_obstacles) / nf,
+              static_cast<double>(perf_ext_.sum_ground) / nf,
+              static_cast<double>(perf_ext_.sum_ceiling) / nf,
+              a.frames > 0 ? a.sum_total_ms / a.frames : 0.0,
+              a.frames > 0 ? a.sum_voxel_ms / a.frames : 0.0,
+              a.frames > 0 ? a.sum_ransac_ms / a.frames : 0.0,
+              a.frames > 0 ? a.sum_refine_ms / a.frames : 0.0);
+          perf_ext_.reset();
+          perf_accum_.reset();
+          last_perf_log_ = now;
+        }
       }
 
       // ── Diagnóstico ───────────────────────────────────────────────────────
@@ -387,31 +527,6 @@ class DepthObstacleFilterNode : public rclcpp::Node {
             ground_estimator_->perfStats().n_input);
       }
 
-      const auto now = get_clock()->now();
-      if (((now - last_perf_log_).seconds() >= 10.0) && false) {
-        const auto& a = perf_accum_;
-        if (a.frames > 0) {
-          const double nf = static_cast<double>(a.frames);
-          RCLCPP_INFO(get_logger(),
-              "[PERF 10s] frames=%d\n"
-              "  Stage1 diagnóstico: avg=%.2fms  max=%.2fms\n"
-              "  Stage2 voxel:       avg=%.2fms  max=%.2fms\n"
-              "  Stage4 RANSAC:      avg=%.2fms  max=%.2fms\n"
-              "  Stage6 refine:      avg=%.2fms  max=%.2fms\n"
-              "  Total pipeline:     avg=%.2fms  max=%.2fms\n"
-              "  Puntos: avg_entrada=%.0f  avg_voxel=%.0f  ratio=%.1f%%",
-              a.frames,
-              a.sum_diag_ms/nf,   a.max_diag_ms,
-              a.sum_voxel_ms/nf,  a.max_voxel_ms,
-              a.sum_ransac_ms/nf, a.max_ransac_ms,
-              a.sum_refine_ms/nf, a.max_refine_ms,
-              a.sum_total_ms/nf,  a.max_total_ms,
-              a.sum_input/nf,     a.sum_voxel/nf,
-              100.0 * a.sum_voxel / (a.sum_input > 0.0 ? a.sum_input : 1.0));
-          perf_accum_.reset();
-          last_perf_log_ = now;
-        }
-      }
     }
   }
 
@@ -494,6 +609,28 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     }
   };
 
+  struct PerfExtAccum {
+    int frames = 0;
+    int empty_obstacle_frames = 0;
+    double sum_project_ms = 0, max_project_ms = 0;
+    double sum_range_ms = 0, max_range_ms = 0;
+    double sum_ground_ms = 0, max_ground_ms = 0;
+    double sum_publish_ms = 0, max_publish_ms = 0;
+    double sum_total_ms = 0, max_total_ms = 0;
+    double sum_age_ms = 0;
+    uint64_t sum_points_projected = 0;
+    uint64_t sum_valid = 0;
+    uint64_t sum_beyond = 0;
+    uint64_t sum_nan = 0;
+    uint64_t sum_below_min = 0;
+    uint64_t sum_beyond_raw = 0;
+    uint64_t sum_obstacles = 0;
+    uint64_t sum_ground = 0;
+    uint64_t sum_ceiling = 0;
+
+    void reset() { *this = PerfExtAccum{}; }
+  };
+
   // ── Miembros ──────────────────────────────────────────────────────────────
   std::unique_ptr<depth_obstacle_filter::DepthProjector>   projector_;
   // std::unique_ptr<depth_obstacle_filter::ImuFilter>     imu_filter_;   // LEGACY: E4
@@ -527,7 +664,14 @@ class DepthObstacleFilterNode : public rclcpp::Node {
 
   float range_min_m_ = 0.1f;
   float range_max_m_ = 5.0f;
-  PerfAccum    perf_accum_;
+  bool perf_log_enabled_ = false;
+  bool debug_enabled_ = false;
+  bool publish_local_mapper_interface_ = false;
+  double perf_log_period_s_ = 5.0;
+  int empty_obstacle_warn_every_ = 5;
+  int empty_obstacle_streak_ = 0;
+  PerfAccum perf_accum_;
+  PerfExtAccum perf_ext_;
   rclcpp::Time last_perf_log_;
 };
 
