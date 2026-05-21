@@ -6,9 +6,11 @@
 //            nav_odom     (nav_msgs/Odometry) — orientación VIO de nav_odometry
 //
 // Publica:
-//   /depth_obstacle_filter/obstacle_cloud  — obstáculos en frame odom (PointCloud2 XYZ)
+//   /depth_obstacle_filter/obstacle_cloud  — obstáculos locales en gravity_aligned_frame
+//                                            para obstacle_grid_encoder/heatmap
 //
 // Publica sólo con publish_local_mapper_interface=true:
+//   /depth_obstacle_filter/obstacle_cloud_odom — obstáculos en frame odom
 //   /depth_obstacle_filter/free_endpoints  — endpoints de rayos libres en frame odom
 //   /depth_obstacle_filter/sensor_pos      — posición de la cámara en odom (PointStamped)
 //                                            point.y = altura estimada del suelo (m)
@@ -26,7 +28,7 @@
 //   odom → gravity_aligned_frame          (yaw + traslación desde nav_odom)
 //   gravity_aligned_frame → camera_depth_optical_frame  (roll + pitch)
 //
-// Los tres topics de interface (obstacle_cloud, free_endpoints, sensor_pos)
+// Los tres topics de interface (obstacle_cloud_odom, free_endpoints, sensor_pos)
 // comparten siempre el mismo header.stamp (= stamp del frame de profundidad).
 // local_mapper usa ExactTimeSynchronizer sobre los tres para garantizar
 // sincronización perfecta: cada actualización del mapa usa exactamente
@@ -101,13 +103,16 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     tf_br_ = std::make_shared<tf2_ros::TransformBroadcaster>(this);
 
     // ── Publicadores principales ─────────────────────────────
-    obstacle_odom_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
+    obstacle_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
         "/depth_obstacle_filter/obstacle_cloud", 10);
 
     camera_height_pub_ = create_publisher<std_msgs::msg::Float32>(
         "/depth_obstacle_filter/camera_height", rclcpp::QoS(1).transient_local());
 
     if (publish_local_mapper_interface_) {
+      obstacle_odom_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
+          "/depth_obstacle_filter/obstacle_cloud_odom", 10);
+
       free_endpoints_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
           "/depth_obstacle_filter/free_endpoints", 10);
 
@@ -307,11 +312,13 @@ class DepthObstacleFilterNode : public rclcpp::Node {
 
     // Salida anticipada si nadie escucha (ahorra CPU en pruebas sin suscriptores).
     const bool has_obstacle_subs =
-        obstacle_odom_pub_->get_subscription_count() > 0;
+        obstacle_pub_->get_subscription_count() > 0;
     const bool has_height_subs =
         camera_height_pub_->get_subscription_count() > 0;
     const bool has_local_mapper_subs = publish_local_mapper_interface_ &&
-        ((free_endpoints_pub_ &&
+        ((obstacle_odom_pub_ &&
+          obstacle_odom_pub_->get_subscription_count() > 0) ||
+         (free_endpoints_pub_ &&
           free_endpoints_pub_->get_subscription_count() > 0) ||
          (sensor_pos_pub_ &&
           sensor_pos_pub_->get_subscription_count() > 0));
@@ -416,6 +423,11 @@ class DepthObstacleFilterNode : public rclcpp::Node {
         }
       }
 
+      if (has_obstacle_subs) {
+        publishIndexedCloud(obstacle_pub_, aligned_hdr, ge_cloud,
+                            ground_estimator_->obstacleIndices());
+      }
+
       // ── Construir y publicar nubes en frame odom ──────────────────────────
       // Los tres topics comparten el mismo stamp → ExactTimeSynchronizer en
       // local_mapper garantiza que cada actualización del mapa usa exactamente
@@ -426,8 +438,8 @@ class DepthObstacleFilterNode : public rclcpp::Node {
         odom_hdr.stamp    = msg->header.stamp;
         odom_hdr.frame_id = "odom";
 
-        // Obstáculos → frame odom (preserva Y=altura para visualización 3D)
-        {
+        if (publish_local_mapper_interface_) {
+          // Obstáculos → frame odom (preserva Y=altura para visualización 3D)
           const auto& obs_idx = ground_estimator_->obstacleIndices();
           std::vector<depth_obstacle_filter::DepthProjector::Point3D> obs_odom;
           obs_odom.reserve(obs_idx.size());
@@ -709,6 +721,8 @@ class DepthObstacleFilterNode : public rclcpp::Node {
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr info_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr      odom_sub_;
   // rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr     imu_sub_;  // LEGACY: E4
+
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr    obstacle_pub_;
 
   // Interface hacia local_mapper (tres topics sincronizados por stamp)
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr    obstacle_odom_pub_;

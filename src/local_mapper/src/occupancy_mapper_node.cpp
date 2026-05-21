@@ -5,7 +5,7 @@
 // obstáculos publicada por depth_obstacle_filter.
 //
 // Suscribe (tres topics sincronizados; mismo stamp por frame de profundidad):
-//   /depth_obstacle_filter/obstacle_cloud  — obstáculos en frame odom (PointCloud2)
+//   /depth_obstacle_filter/obstacle_cloud_odom — obstáculos en frame odom (PointCloud2)
 //   /depth_obstacle_filter/free_endpoints  — endpoints de rayos libres en odom
 //   /depth_obstacle_filter/sensor_pos      — posición de la cámara en odom
 //                                            (PointStamped; point.y = floor_height_m)
@@ -78,7 +78,7 @@ class OccupancyMapperNode : public rclcpp::Node {
     // Los tres topics comparten siempre el mismo stamp (mismo depth frame),
     // por lo que ExactTimeSynchronizer nunca descarta mensajes por desalineación.
     constexpr int kQueueDepth = 10;
-    obstacle_sub_.subscribe(this, "/depth_obstacle_filter/obstacle_cloud",
+    obstacle_sub_.subscribe(this, "/depth_obstacle_filter/obstacle_cloud_odom",
                             rclcpp::QoS(kQueueDepth).get_rmw_qos_profile());
     free_sub_.subscribe(this, "/depth_obstacle_filter/free_endpoints",
                         rclcpp::QoS(kQueueDepth).get_rmw_qos_profile());
