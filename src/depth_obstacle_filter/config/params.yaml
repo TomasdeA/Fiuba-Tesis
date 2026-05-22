@@ -5,7 +5,11 @@ depth_obstacle_filter:
     # (depth/image, depth/camera_info, imu).
     depth_image_topic: "/camera/camera/depth/image_rect_raw"
     camera_info_topic: "/camera/camera/depth/camera_info"
-    # imu_topic:       "/camera/camera/imu"  # LEGACY: E4
+    imu_topic:         "/camera/camera/accel/sample"
+    # Fuente de orientación para alinear a gravedad:
+    #   nav_odom    = usa /nav_odom publicado por nav_odometry (default actual)
+    #   imu_legacy  = usa acelerómetro + GravityAligner legacy
+    orientation_source: "nav_odom"
 
     # Rango de profundidad válido (metros) — definido en nav_bringup/config/sensor_range.yaml
     debug: false

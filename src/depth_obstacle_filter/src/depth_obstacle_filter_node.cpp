@@ -40,6 +40,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <string>
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/imu.hpp>
@@ -89,6 +90,15 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     debug_enabled_ = declare_parameter<bool>("debug", false);
     publish_local_mapper_interface_ =
         declare_parameter<bool>("publish_local_mapper_interface", false);
+    orientation_source_ =
+        declare_parameter<std::string>("orientation_source", "nav_odom");
+    if (orientation_source_ != "nav_odom" &&
+        orientation_source_ != "imu_legacy") {
+      RCLCPP_WARN(get_logger(),
+          "orientation_source='%s' invalido; usando nav_odom",
+          orientation_source_.c_str());
+      orientation_source_ = "nav_odom";
+    }
     height_filter_alpha_ = static_cast<float>(
         declare_parameter<double>("height_filter_alpha", 0.03));
     height_max_step_m_ = static_cast<float>(
@@ -104,10 +114,11 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     height_max_ground_tilt_deg_ = static_cast<float>(
         declare_parameter<double>("height_max_ground_tilt_deg", 8.0));
 
-    // ── ImuFilter [LEGACY — E4] ───────────────────────────────────────────────
-    // depth_obstacle_filter::ImuFilter::Config imu_cfg;
-    // imu_filter_ = std::make_unique<depth_obstacle_filter::ImuFilter>(
-    //     imu_cfg, get_logger(), get_clock());
+    if (useLegacyImuOrientation()) {
+      depth_obstacle_filter::ImuFilter::Config imu_cfg;
+      imu_filter_ = std::make_unique<depth_obstacle_filter::ImuFilter>(
+          imu_cfg, get_logger(), get_clock());
+    }
 
     // ── TF broadcaster ───────────────────────────────────────────────────────
     tf_br_ = std::make_shared<tf2_ros::TransformBroadcaster>(this);
@@ -153,24 +164,34 @@ class DepthObstacleFilterNode : public rclcpp::Node {
         "depth/camera_info", rclcpp::SensorDataQoS(),
         std::bind(&DepthObstacleFilterNode::onCameraInfo, this, _1));
 
-    odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-        "nav_odom", rclcpp::QoS(1).reliable(),
-        std::bind(&DepthObstacleFilterNode::onOdom, this, _1));
-
-    // [LEGACY — E4]
-    // imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(
-    //     "imu", rclcpp::SensorDataQoS(),
-    //     std::bind(&DepthObstacleFilterNode::onImu, this, _1));
+    if (useNavOdomOrientation()) {
+      odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
+          "nav_odom", rclcpp::QoS(1).reliable(),
+          std::bind(&DepthObstacleFilterNode::onOdom, this, _1));
+    } else {
+      imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(
+          "imu", rclcpp::SensorDataQoS(),
+          std::bind(&DepthObstacleFilterNode::onImu, this, _1));
+    }
 
     RCLCPP_INFO(get_logger(),
-        "DepthObstacleFilterNode listo. range=[%.2f, %.2f]m debug=%s local_mapper_interface=%s",
+        "DepthObstacleFilterNode listo. range=[%.2f, %.2f]m debug=%s local_mapper_interface=%s orientation_source=%s",
         range_min_m_, range_max_m_,
         debug_enabled_ ? "true" : "false",
-        publish_local_mapper_interface_ ? "true" : "false");
+        publish_local_mapper_interface_ ? "true" : "false",
+        orientation_source_.c_str());
     last_perf_log_ = get_clock()->now();
   }
 
  private:
+  bool useNavOdomOrientation() const {
+    return orientation_source_ == "nav_odom";
+  }
+
+  bool useLegacyImuOrientation() const {
+    return orientation_source_ == "imu_legacy";
+  }
+
   static double elapsedMs(const struct timespec& start) {
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
@@ -272,13 +293,56 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     height_publish_initialized_ = true;
   }
 
+  void publishOrientationTransforms(const rclcpp::Time& stamp) {
+    // ── TF 1: odom → gravity_aligned_frame ───────────────────────────────────
+    geometry_msgs::msg::TransformStamped tf_gaf;
+    tf_gaf.header.stamp    = stamp;
+    tf_gaf.header.frame_id = "odom";
+    tf_gaf.child_frame_id  = "gravity_aligned_frame";
+    tf_gaf.transform.translation.x = odom_pos_x_;
+    tf_gaf.transform.translation.y = odom_pos_y_;
+    tf_gaf.transform.translation.z = odom_pos_z_;
+    tf_gaf.transform.rotation.w = q_yaw_yd_cached_.w;
+    tf_gaf.transform.rotation.x = q_yaw_yd_cached_.x;
+    tf_gaf.transform.rotation.y = q_yaw_yd_cached_.y;
+    tf_gaf.transform.rotation.z = q_yaw_yd_cached_.z;
+    tf_br_->sendTransform(tf_gaf);
+
+    // ── TF 2: gravity_aligned_frame → camera_depth_optical_frame ─────────────
+    geometry_msgs::msg::TransformStamped tf_cam;
+    tf_cam.header.stamp    = stamp;
+    tf_cam.header.frame_id = "gravity_aligned_frame";
+    tf_cam.child_frame_id  = "camera_depth_optical_frame";
+    tf_cam.transform.rotation.w = q_rp_.w;
+    tf_cam.transform.rotation.x = q_rp_.x;
+    tf_cam.transform.rotation.y = q_rp_.y;
+    tf_cam.transform.rotation.z = q_rp_.z;
+    tf_br_->sendTransform(tf_cam);
+  }
+
   // ── LEGACY: GravityAligner (E4) ──────────────────────────────────────────
-  // void onImu(const sensor_msgs::msg::Imu::SharedPtr msg) {
-  //   (void)msg;
-  //   const auto& a = msg->linear_acceleration;
-  //   imu_filter_->processAccel(...);
-  //   q_ = aligner_.estimateOrientation(...);
-  // }
+  void onImu(const sensor_msgs::msg::Imu::SharedPtr msg) {
+    if (!imu_filter_) return;
+
+    const auto& a = msg->linear_acceleration;
+    imu_filter_->processAccel(
+        static_cast<float>(a.x),
+        static_cast<float>(a.y),
+        static_cast<float>(a.z));
+
+    q_rp_ = aligner_.estimateOrientation(
+        imu_filter_->ax(),
+        imu_filter_->ay(),
+        imu_filter_->az()).normalized();
+    if (q_rp_.w < 0.f) {
+      q_rp_ = {-q_rp_.w, -q_rp_.x, -q_rp_.y, -q_rp_.z};
+    }
+    q_ = q_rp_;
+    q_yaw_yd_cached_ = {1.f, 0.f, 0.f, 0.f};
+    odom_pos_x_ = 0.0f;
+    odom_pos_y_ = 0.0f;
+    odom_pos_z_ = 0.0f;
+  }
 
   // ── Orientación VIO (fuente principal) ───────────────────────────────────
   // Calcula q_rp_ (roll+pitch) y q_yaw_yd_cached_ a partir de nav_odom.
@@ -309,33 +373,11 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     }
 
     odom_pos_x_ = static_cast<float>(msg->pose.pose.position.x);
+    odom_pos_y_ = static_cast<float>(msg->pose.pose.position.y);
     odom_pos_z_ = static_cast<float>(msg->pose.pose.position.z);
     q_yaw_yd_cached_ = q_yaw_yd;
 
-    // ── TF 1: odom → gravity_aligned_frame ───────────────────────────────────
-    geometry_msgs::msg::TransformStamped tf_gaf;
-    tf_gaf.header.stamp    = msg->header.stamp;
-    tf_gaf.header.frame_id = "odom";
-    tf_gaf.child_frame_id  = "gravity_aligned_frame";
-    tf_gaf.transform.translation.x = msg->pose.pose.position.x;
-    tf_gaf.transform.translation.y = msg->pose.pose.position.y;
-    tf_gaf.transform.translation.z = msg->pose.pose.position.z;
-    tf_gaf.transform.rotation.w = q_yaw_yd.w;
-    tf_gaf.transform.rotation.x = q_yaw_yd.x;
-    tf_gaf.transform.rotation.y = q_yaw_yd.y;
-    tf_gaf.transform.rotation.z = q_yaw_yd.z;
-    tf_br_->sendTransform(tf_gaf);
-
-    // ── TF 2: gravity_aligned_frame → camera_depth_optical_frame ─────────────
-    geometry_msgs::msg::TransformStamped tf_cam;
-    tf_cam.header.stamp    = msg->header.stamp;
-    tf_cam.header.frame_id = "gravity_aligned_frame";
-    tf_cam.child_frame_id  = "camera_depth_optical_frame";
-    tf_cam.transform.rotation.w = q_rp_.w;
-    tf_cam.transform.rotation.x = q_rp_.x;
-    tf_cam.transform.rotation.y = q_rp_.y;
-    tf_cam.transform.rotation.z = q_rp_.z;
-    tf_br_->sendTransform(tf_cam);
+    publishOrientationTransforms(msg->header.stamp);
   }
 
   void onDepth(const sensor_msgs::msg::Image::SharedPtr msg) {
@@ -345,6 +387,10 @@ class DepthObstacleFilterNode : public rclcpp::Node {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
           "Encoding inesperado: %s (se espera 16UC1)", msg->encoding.c_str());
       return;
+    }
+
+    if (useLegacyImuOrientation()) {
+      publishOrientationTransforms(msg->header.stamp);
     }
 
     // Salida anticipada si nadie escucha (ahorra CPU en pruebas sin suscriptores).
@@ -743,13 +789,14 @@ class DepthObstacleFilterNode : public rclcpp::Node {
 
   // ── Miembros ──────────────────────────────────────────────────────────────
   std::unique_ptr<depth_obstacle_filter::DepthProjector>   projector_;
-  // std::unique_ptr<depth_obstacle_filter::ImuFilter>     imu_filter_;   // LEGACY: E4
+  std::unique_ptr<depth_obstacle_filter::ImuFilter>        imu_filter_;
   std::unique_ptr<depth_obstacle_filter::GroundEstimator>  ground_estimator_;
-  // depth_obstacle_filter::GravityAligner                 aligner_;      // LEGACY: E4
+  depth_obstacle_filter::GravityAligner                    aligner_;
   nav_math::Quaternion                            q_{1.0f, 0.0f, 0.0f, 0.0f};
   nav_math::Quaternion                            q_rp_{1.0f, 0.0f, 0.0f, 0.0f};
   nav_math::Quaternion                            q_yaw_yd_cached_{1.0f, 0.0f, 0.0f, 0.0f};
   float                                           odom_pos_x_{0.0f};
+  float                                           odom_pos_y_{0.0f};
   float                                           odom_pos_z_{0.0f};
   float                                           floor_height_m_{0.0f};
   float                                           filtered_camera_height_m_{0.0f};
@@ -761,7 +808,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr      depth_sub_;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr info_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr      odom_sub_;
-  // rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr     imu_sub_;  // LEGACY: E4
+  rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr        imu_sub_;
 
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr    obstacle_pub_;
 
@@ -782,6 +829,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
   bool perf_log_enabled_ = false;
   bool debug_enabled_ = false;
   bool publish_local_mapper_interface_ = false;
+  std::string orientation_source_ = "nav_odom";
   double perf_log_period_s_ = 5.0;
   int empty_obstacle_warn_every_ = 5;
   int empty_obstacle_streak_ = 0;

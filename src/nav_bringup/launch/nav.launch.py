@@ -104,6 +104,7 @@ def generate_launch_description():
     use_hw             = LaunchConfiguration('use_hw')
     use_perception     = LaunchConfiguration('use_perception')
     use_visual_odometry = LaunchConfiguration('use_visual_odometry')
+    orientation_source = LaunchConfiguration('orientation_source')
     use_local_mapper   = LaunchConfiguration('use_local_mapper')
     debug              = LaunchConfiguration('debug')
     use_viz            = LaunchConfiguration('use_viz')
@@ -185,7 +186,8 @@ def generate_launch_description():
             'use_visual_odometry': use_visual_odometry,
         }.items(),
         condition=IfCondition(PythonExpression([
-            "'", use_perception, "' == 'true' and '", pipeline_mode, "' == 'filtered'"
+            "'", use_perception, "' == 'true' and '", pipeline_mode,
+            "' == 'filtered' and '", orientation_source, "' == 'nav_odom'"
         ])),
     )
 
@@ -199,6 +201,7 @@ def generate_launch_description():
             'sensor_depth_max_m': str(_depth_max_m),
             'debug': debug,
             'publish_local_mapper_interface': use_local_mapper,
+            'orientation_source': orientation_source,
         }.items(),
         condition=IfCondition(PythonExpression([
             "'", use_perception, "' == 'true' and '", pipeline_mode, "' == 'filtered'"
@@ -352,6 +355,15 @@ def generate_launch_description():
             'use_visual_odometry',
             default_value='false',
             description='Habilitar tracker RGBD en nav_odometry. Si false, solo IMU inercial (roll/pitch).',
+        ),
+        DeclareLaunchArgument(
+            'orientation_source',
+            default_value='nav_odom',
+            choices=['nav_odom', 'imu_legacy'],
+            description=(
+                "Fuente de roll/pitch para depth_obstacle_filter: "
+                "'nav_odom' lanza nav_odometry; 'imu_legacy' usa GravityAligner"
+            ),
         ),
         DeclareLaunchArgument(
             'use_local_mapper',

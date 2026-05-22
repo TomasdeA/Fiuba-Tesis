@@ -30,7 +30,8 @@ def generate_launch_description():
                               '/camera/camera/depth/image_rect_raw')
     hw_info  = ros_params.get('camera_info_topic',
                               '/camera/camera/depth/camera_info')
-    # hw_imu  = ros_params.get('imu_topic', '/camera/camera/imu')  # LEGACY: E4
+    hw_imu   = ros_params.get('imu_topic',
+                              '/camera/camera/accel/sample')
 
     _default_min, _default_max = _read_sensor_range()
 
@@ -51,12 +52,14 @@ def generate_launch_description():
                     'debug': context.launch_configurations.get('debug', 'false').lower() == 'true',
                     'publish_local_mapper_interface': context.launch_configurations.get(
                         'publish_local_mapper_interface', 'false').lower() == 'true',
+                    'orientation_source': context.launch_configurations.get(
+                        'orientation_source', 'nav_odom'),
                 },
             ],
             remappings=[
                 ('depth/image',       hw_depth),
                 ('depth/camera_info', hw_info),
-                # ('imu', hw_imu),  # LEGACY: E4
+                ('imu',               hw_imu),
             ],
             output='screen',
         )
@@ -82,6 +85,12 @@ def generate_launch_description():
             'publish_local_mapper_interface',
             default_value='false',
             description='Publicar free_endpoints y sensor_pos para local_mapper',
+        ),
+        DeclareLaunchArgument(
+            'orientation_source',
+            default_value='nav_odom',
+            choices=['nav_odom', 'imu_legacy'],
+            description='Fuente de roll/pitch: nav_odom o acelerómetro legacy',
         ),
         OpaqueFunction(function=_make_node),
     ])
