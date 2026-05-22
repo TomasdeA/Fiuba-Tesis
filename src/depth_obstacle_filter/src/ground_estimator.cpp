@@ -429,6 +429,25 @@ GroundEstimator::Plane GroundEstimator::stage4_ransac(
   if (static_cast<int>(band_idx.size()) < 3)
     band_idx = floor_idx;
 
+  // El costo dominante de RANSAC es contar inliers para cada candidato. Cuando
+  // no hay voxel, la banda puede contener decenas de miles de puntos; limitarla
+  // mantiene latencia acotada sin cambiar el pool geométrico de candidatos.
+  const int max_band_points = cfg_.ransac_max_band_points;
+  if (max_band_points > 0 &&
+      static_cast<int>(band_idx.size()) > max_band_points) {
+    std::vector<int> limited;
+    limited.reserve(max_band_points);
+    const double step = static_cast<double>(band_idx.size()) /
+                        static_cast<double>(max_band_points);
+    for (int i = 0; i < max_band_points; ++i) {
+      const int src = std::min(
+          static_cast<int>(i * step),
+          static_cast<int>(band_idx.size()) - 1);
+      limited.push_back(band_idx[src]);
+    }
+    band_idx = std::move(limited);
+  }
+
   const int n_band = static_cast<int>(band_idx.size());
   if (n_band < 3) return Plane{};  // suelo no visible en la escena
 

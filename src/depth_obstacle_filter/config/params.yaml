@@ -31,6 +31,9 @@ depth_obstacle_filter:
     voxel_size_m:      0.1
     # Iteraciones máximas de RANSAC
     ransac_max_iter:   100
+    # Máximo de puntos de la banda de suelo usados para contar inliers en RANSAC.
+    # 0 o negativo deshabilita el límite.
+    ransac_max_band_points: 5000
     # Tolerancia de inliers para RANSAC (0.0 = calcular automáticamente
     # como 3 × ruido estimado por diagnóstico de la nube)
     ground_inlier_tol: 0.0

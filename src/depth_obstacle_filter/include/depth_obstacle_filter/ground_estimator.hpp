@@ -85,6 +85,7 @@ class GroundEstimator {
 
     // Stage 3 / 4 — RANSAC
     int   ransac_max_iter    = 100;  ///< Iteraciones máximas de RANSAC
+    int   ransac_max_band_points = 5000; ///< Máximo de puntos usados para contar inliers.
     float ransac_inlier_tol  = 0.0f; ///< 0 → se calcula automáticamente en Stage 3
     float ransac_min_inliers = 0.3f; ///< Fracción mínima de inliers sobre la banda
     float min_person_height_m = 1.3f; ///< Altura mínima esperada de cualquier usuario (m).

@@ -74,6 +74,8 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     ge_cfg.voxel_size_m   = static_cast<float>(
         declare_parameter<double>("voxel_size_m", 0.05));
     ge_cfg.ransac_max_iter = declare_parameter<int>("ransac_max_iter", 100);
+    ge_cfg.ransac_max_band_points =
+        declare_parameter<int>("ransac_max_band_points", 5000);
     ge_cfg.ransac_inlier_tol = static_cast<float>(
         declare_parameter<double>("ground_inlier_tol", 0.0));
     ge_cfg.min_person_height_m = static_cast<float>(
