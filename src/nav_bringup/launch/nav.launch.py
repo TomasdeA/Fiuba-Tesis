@@ -53,6 +53,51 @@ def _resolve_bag_path(context, *args, **kwargs):
     ]
 
 
+def _make_realsense_node(context, *args, **kwargs):
+    """Create the RealSense node with streams matched to the odometry mode."""
+    if context.launch_configurations.get('use_realsense', 'true').lower() != 'true':
+        return []
+
+    try:
+        from ament_index_python.packages import get_package_share_directory
+        get_package_share_directory('realsense2_camera')  # raises if not installed
+    except Exception:
+        return [LogInfo(msg='realsense2_camera not found — skipping camera launch')]
+
+    use_visual = context.launch_configurations.get(
+        'use_visual_odometry', 'false').lower() == 'true'
+
+    params = {
+        'enable_gyro': True,
+        'enable_accel': True,
+        'enable_depth': True,
+        'enable_infra1': False,
+        'enable_infra2': False,
+        'enable_color': use_visual,
+        'align_depth.enable': use_visual,
+        'depth_module.depth_profile': '640x480x6',
+        'initial_reset': True,
+        'reconnect_timeout': 10.0,
+    }
+    if use_visual:
+        params['rgb_camera.color_profile'] = '640x480x6'
+
+    mode = 'RGBD visual odometry' if use_visual else 'IMU-only odometry'
+    return [
+        LogInfo(msg=f'RealSense stream profile: {mode}'),
+        Node(
+            package='realsense2_camera',
+            executable='realsense2_camera_node',
+            name='camera',
+            namespace='camera',
+            output='screen',
+            respawn=True,
+            respawn_delay=2.0,
+            parameters=[params],
+        ),
+    ]
+
+
 def generate_launch_description():
     # ── Launch arguments ──────────────────────────────────
     use_realsense      = LaunchConfiguration('use_realsense')
@@ -123,39 +168,9 @@ def generate_launch_description():
     ])
 
     # ── RealSense camera (optional — needs the HW) ───────
-    # We defer the import so the launch file doesn't crash when
-    # realsense2_camera is not installed on the dev machine.
-    realsense_actions = []
-    try:
-        from ament_index_python.packages import get_package_share_directory
-        get_package_share_directory('realsense2_camera')  # raises if not installed
-
-        realsense = Node(
-            package='realsense2_camera',
-            executable='realsense2_camera_node',
-            name='camera',
-            namespace='camera',
-            output='screen',
-            respawn=True,
-            respawn_delay=2.0,
-            condition=IfCondition(use_realsense),
-            parameters=[{
-                'enable_gyro':                  True,
-                'enable_accel':                 True,
-                'enable_depth':                 True,
-                'enable_infra1':                False,
-                'enable_infra2':                False,
-                #'align_depth.enable':           True,
-                #'depth_module.depth_profile':   '640x480x6',
-                #'rgb_camera.color_profile':     '640x480x6',
-                'initial_reset':                True,
-                'reconnect_timeout':            10.0,
-            }],
-        )
-        realsense_actions.append(realsense)
-    except Exception:
-        realsense_actions.append(
-            LogInfo(msg='realsense2_camera not found — skipping camera launch'))
+    # Created at launch runtime so use_visual_odometry can select the streams:
+    # IMU-only keeps color/alignment disabled; visual odometry enables RGBD.
+    realsense = OpaqueFunction(function=_make_realsense_node)
 
     # ── nav_odometry: IMU + estéreo → nav_msgs/Odometry ──
     # Fusiona giroscopio, acelerómetro y tracker estéreo infrarrojo
@@ -202,7 +217,8 @@ def generate_launch_description():
     )
 
     # ── Depth-to-matrix encoder (pipeline: raw) ───────────
-    # Activo solo cuando pipeline_mode == 'raw' (default)
+    # Activo solo cuando pipeline_mode == 'raw' (default).
+    # pipeline_mode == 'none' deja apagados todos los encoders de grilla.
     depth_to_matrix = Node(
         package='depth_grid_encoder',
         executable='depth_to_matrix',
@@ -219,7 +235,8 @@ def generate_launch_description():
     )
 
     # ── Obstacle grid encoder (pipeline: filtered) ────────
-    # Activo solo cuando pipeline_mode == 'filtered'
+    # Activo solo cuando pipeline_mode == 'filtered'.
+    # pipeline_mode == 'none' deja apagados todos los encoders de grilla.
     # Convierte ObstacleCloud (PointCloud2 con ground removal) → DepthGrid
     obstacle_grid = Node(
         package='depth_grid_encoder',
@@ -374,10 +391,12 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'pipeline_mode',
             default_value='raw',
+            choices=['raw', 'filtered', 'none'],
             description=(
                 "Modo de la pipeline de encodificación de grilla: "
                 "'raw' usa depth_to_matrix (imagen de profundidad directa), "
-                "'filtered' usa obstacle_grid_encoder (ObstacleCloud con ground removal)"
+                "'filtered' usa obstacle_grid_encoder (ObstacleCloud con ground removal), "
+                "'none' no lanza ningún encoder de grilla"
             ),
         ),
         DeclareLaunchArgument(
@@ -396,7 +415,7 @@ def generate_launch_description():
         ),
 
         # Nodes — in pipeline order
-        *realsense_actions,
+        realsense,
         OpaqueFunction(
             function=_resolve_bag_path,
             condition=IfCondition(use_bag),

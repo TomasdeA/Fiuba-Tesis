@@ -25,7 +25,7 @@ depth_obstacle_filter:
 
     # ── GroundEstimator ─────────────────────────────────────────────────
     # Tamaño de celda del voxel grid de downsampling (m)
-    voxel_size_m:      0.05
+    voxel_size_m:      0.1
     # Iteraciones máximas de RANSAC
     ransac_max_iter:   100
     # Tolerancia de inliers para RANSAC (0.0 = calcular automáticamente
