@@ -69,7 +69,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     range_max_m_ = static_cast<float>(
         declare_parameter<double>("range_max_m", 5.0));
     depth_pixel_stride_ = std::max(
-        1, declare_parameter<int>("depth_pixel_stride", 1));
+        1, static_cast<int>(declare_parameter<int>("depth_pixel_stride", 1)));
 
     depth_obstacle_filter::GroundEstimator::Config ge_cfg;
     ge_cfg.enable_voxel_filter =
