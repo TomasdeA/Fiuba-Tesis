@@ -75,7 +75,7 @@ def _make_realsense_node(context, *args, **kwargs):
         'enable_infra2': False,
         'enable_color': use_visual,
         'align_depth.enable': use_visual,
-        'depth_module.depth_profile': '640x480x6',
+        'depth_module.depth_profile': '320x240x6',
         'initial_reset': True,
         'reconnect_timeout': 10.0,
     }
