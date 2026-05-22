@@ -35,3 +35,7 @@ depth_obstacle_filter:
     min_person_height_m: 1.3
     # Margen por encima de la cámara para clasificar como CEILING (m).
     ceiling_delta_m: 0.1
+
+    # ── Performance ─────────────────────────────────────────────────
+    perf_log_enabled: true
+    perf_log_period_s: 5.0
