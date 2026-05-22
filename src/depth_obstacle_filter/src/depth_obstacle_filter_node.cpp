@@ -68,6 +68,8 @@ class DepthObstacleFilterNode : public rclcpp::Node {
         declare_parameter<double>("range_min_m", 0.1));
     range_max_m_ = static_cast<float>(
         declare_parameter<double>("range_max_m", 5.0));
+    depth_pixel_stride_ = std::max(
+        1, declare_parameter<int>("depth_pixel_stride", 1));
 
     depth_obstacle_filter::GroundEstimator::Config ge_cfg;
     ge_cfg.enable_voxel_filter =
@@ -421,7 +423,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     clock_gettime(CLOCK_MONOTONIC, &t_stage);
     const auto* depth_data = reinterpret_cast<const uint16_t*>(msg->data.data());
     auto points = projector_->projectDepthImage(
-        depth_data, msg->width, msg->height);
+        depth_data, msg->width, msg->height, 1e-3f, depth_pixel_stride_);
     const double t_project_ms = elapsedMs(t_stage);
 
     // ── Filtrado de rango ─────────────────────────────────────────────────────
@@ -826,6 +828,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
 
   float range_min_m_ = 0.1f;
   float range_max_m_ = 5.0f;
+  int depth_pixel_stride_ = 1;
   bool perf_log_enabled_ = false;
   bool debug_enabled_ = false;
   bool publish_local_mapper_interface_ = false;

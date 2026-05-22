@@ -12,6 +12,9 @@ depth_obstacle_filter:
     orientation_source: "nav_odom"
 
     # Rango de profundidad válido (metros) — definido en nav_bringup/config/sensor_range.yaml
+    # Submuestreo de píxeles antes de proyectar depth a nube.
+    # 1 = resolución completa; 2 = procesa 1/4 de los píxeles; 3 = 1/9.
+    depth_pixel_stride: 2
     debug: false
     publish_local_mapper_interface: false
     # Altura de cámara usada por obstacle_grid_encoder para fijar y_max.

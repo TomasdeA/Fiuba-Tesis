@@ -48,3 +48,21 @@ TEST(DepthProjector, ProjectImageHandlesInvalidPixels) {
   EXPECT_NEAR(points[2].z, 2.0f, 0.01f);
   EXPECT_TRUE(std::isnan(points[3].z));  // píxel inválido (depth=0) -> NaN
 }
+
+TEST(DepthProjector, ProjectImageSupportsPixelStride) {
+  depth_obstacle_filter::DepthProjector proj(makeCameraInfo());
+
+  uint16_t depth_data[4 * 4] = {
+      1000, 1000, 2000, 1000,
+      1000, 1000, 1000, 1000,
+      3000, 1000, 4000, 1000,
+      1000, 1000, 1000, 1000
+  };
+
+  auto points = proj.projectDepthImage(depth_data, 4, 4, 1e-3f, 2);
+  EXPECT_EQ(points.size(), 4u);
+  EXPECT_NEAR(points[0].z, 1.0f, 0.01f);  // (0, 0)
+  EXPECT_NEAR(points[1].z, 2.0f, 0.01f);  // (2, 0)
+  EXPECT_NEAR(points[2].z, 3.0f, 0.01f);  // (0, 2)
+  EXPECT_NEAR(points[3].z, 4.0f, 0.01f);  // (2, 2)
+}

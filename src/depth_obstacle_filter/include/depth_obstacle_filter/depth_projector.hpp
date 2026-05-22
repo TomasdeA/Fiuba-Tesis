@@ -47,7 +47,8 @@ class DepthProjector {
       const uint16_t* depth_data,
       int width,
       int height,
-      float depth_scale = 1e-3f) const;
+      float depth_scale = 1e-3f,
+      int pixel_stride = 1) const;
 
   /**
    * Proyecta un solo píxel a 3D.
