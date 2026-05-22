@@ -69,6 +69,8 @@ class DepthObstacleFilterNode : public rclcpp::Node {
         declare_parameter<double>("range_max_m", 5.0));
 
     depth_obstacle_filter::GroundEstimator::Config ge_cfg;
+    ge_cfg.enable_voxel_filter =
+        declare_parameter<bool>("enable_voxel_filter", true);
     ge_cfg.voxel_size_m   = static_cast<float>(
         declare_parameter<double>("voxel_size_m", 0.05));
     ge_cfg.ransac_max_iter = declare_parameter<int>("ransac_max_iter", 100);

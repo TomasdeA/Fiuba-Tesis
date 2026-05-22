@@ -24,6 +24,9 @@ depth_obstacle_filter:
     height_max_ground_tilt_deg: 8.0
 
     # ── GroundEstimator ─────────────────────────────────────────────────
+    # Habilitar voxel grid antes de RANSAC. Desactivar para medir costo/beneficio
+    # cuando RANSAC ya trabaja sobre la banda cercana al Y máximo.
+    enable_voxel_filter: true
     # Tamaño de celda del voxel grid de downsampling (m)
     voxel_size_m:      0.1
     # Iteraciones máximas de RANSAC

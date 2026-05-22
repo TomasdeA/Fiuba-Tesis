@@ -80,6 +80,7 @@ class GroundEstimator {
 
   struct Config {
     // Stage 2 — Voxel sampling
+    bool  enable_voxel_filter = true;  ///< Si false, RANSAC usa la nube sin downsampling.
     float voxel_size_m    = 0.05f;   ///< Tamaño de celda del voxel grid (m)
 
     // Stage 3 / 4 — RANSAC

@@ -297,6 +297,7 @@ GroundEstimator::CloudStats GroundEstimator::stage1_diagnostics(
 std::vector<GroundEstimator::Point3D> GroundEstimator::stage2_voxel_sample(
     const std::vector<Point3D>& cloud) const
 {
+  if (!cfg_.enable_voxel_filter) return cloud;
   if (cloud.empty()) return {};
   const float inv_vs = 1.0f / cfg_.voxel_size_m;
 
