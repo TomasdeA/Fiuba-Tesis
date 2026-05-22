@@ -93,6 +93,12 @@ class DepthObstacleFilterNode : public rclcpp::Node {
         declare_parameter<double>("height_outlier_reject_m", 0.25));
     height_publish_delta_m_ = static_cast<float>(
         declare_parameter<double>("height_publish_delta_m", 0.05));
+    height_min_ground_quality_ = static_cast<float>(
+        declare_parameter<double>("height_min_ground_quality", 0.35));
+    height_min_ground_inliers_ =
+        declare_parameter<int>("height_min_ground_inliers", 50);
+    height_max_ground_tilt_deg_ = static_cast<float>(
+        declare_parameter<double>("height_max_ground_tilt_deg", 8.0));
 
     // ── ImuFilter [LEGACY — E4] ───────────────────────────────────────────────
     // depth_obstacle_filter::ImuFilter::Config imu_cfg;
@@ -211,6 +217,33 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     filtered_camera_height_m_ += limited_step;
     floor_height_m_ = filtered_camera_height_m_;
     return true;
+  }
+
+  bool isGroundReliableForHeight() const {
+    const auto& plane = ground_estimator_->groundPlane();
+    if (!plane.valid) return false;
+    if (plane.quality < height_min_ground_quality_) return false;
+    if (plane.n_inliers < height_min_ground_inliers_) return false;
+
+    const float cos_tilt = std::abs(plane.ny);
+    const float tilt_deg = std::acos(std::clamp(cos_tilt, 0.0f, 1.0f))
+                           * 180.0f / static_cast<float>(M_PI);
+    return tilt_deg <= height_max_ground_tilt_deg_;
+  }
+
+  void logRejectedHeightByGroundConfidence() {
+    const auto& plane = ground_estimator_->groundPlane();
+    const float cos_tilt = std::abs(plane.ny);
+    const float tilt_deg = plane.valid
+        ? std::acos(std::clamp(cos_tilt, 0.0f, 1.0f)) *
+              180.0f / static_cast<float>(M_PI)
+        : 90.0f;
+    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+        "[camera_height] conservada: piso poco confiable valid=%d quality=%.3f inliers=%d tilt=%.1fdeg",
+        plane.valid ? 1 : 0,
+        plane.quality,
+        plane.n_inliers,
+        tilt_deg);
   }
 
   void maybePublishCameraHeight() {
@@ -417,9 +450,13 @@ class DepthObstacleFilterNode : public rclcpp::Node {
 
       // ── Actualizar altura del suelo ───────────────────────────────────────
       if (ground_ok) {
-        const float h = ground_estimator_->cameraHeightM();
-        if (updateCameraHeight(h)) {
-          maybePublishCameraHeight();
+        if (isGroundReliableForHeight()) {
+          const float h = ground_estimator_->cameraHeightM();
+          if (updateCameraHeight(h)) {
+            maybePublishCameraHeight();
+          }
+        } else {
+          logRejectedHeightByGroundConfidence();
         }
       }
 
@@ -748,6 +785,9 @@ class DepthObstacleFilterNode : public rclcpp::Node {
   float height_max_step_m_ = 0.005f;
   float height_outlier_reject_m_ = 0.25f;
   float height_publish_delta_m_ = 0.05f;
+  float height_min_ground_quality_ = 0.35f;
+  int height_min_ground_inliers_ = 50;
+  float height_max_ground_tilt_deg_ = 8.0f;
   float height_min_valid_m_ = 0.5f;
   float height_max_valid_m_ = 2.5f;
   PerfAccum perf_accum_;

@@ -17,6 +17,11 @@ depth_obstacle_filter:
     height_max_step_m: 0.005
     height_outlier_reject_m: 0.25
     height_publish_delta_m: 0.05
+    # Aceptar una altura nueva sólo si el plano de piso es confiable.
+    # Si falla alguna condición, se conserva la altura anterior.
+    height_min_ground_quality: 0.35
+    height_min_ground_inliers: 50
+    height_max_ground_tilt_deg: 8.0
 
     # ── GroundEstimator ─────────────────────────────────────────────────
     # Tamaño de celda del voxel grid de downsampling (m)
