@@ -176,6 +176,21 @@ bool GroundEstimator::estimate(const std::vector<Point3D>& cloud) {
 
   if (voxel_cloud.size() < 10) return finalize(false);
 
+  // Fast path: si el plano del frame anterior todavía explica bien la nube,
+  // no se vuelve a buscar un plano aleatorio. En una cámara montada en la
+  // cabeza, la altura al piso cambia lento; esto evita jitter y CPU innecesaria.
+  if (cfg_.enable_plane_cache && last_good_plane_.valid) {
+    ground_plane_ = scoreCachedPlane(cloud, tol);
+    if (ground_plane_.valid) {
+      perf_.time_total_ms = elapsedMs(t_total);
+      perf_.n_inliers = ground_plane_.n_inliers;
+      perf_.used_cached_plane = true;
+      stage7_classify(cloud, ground_plane_, tol);
+      return true;
+    }
+    ground_plane_ = Plane{};
+  }
+
   // ── Etapa 4: RANSAC jerárquico ────────────────────────────────────────────
   struct timespec t_ransac; clock_gettime(CLOCK_MONOTONIC, &t_ransac);
   Plane candidate = stage4_ransac(voxel_cloud, tol, cfg_.ransac_max_iter);
@@ -196,6 +211,7 @@ bool GroundEstimator::estimate(const std::vector<Point3D>& cloud) {
   if (!ground_plane_.valid)        return finalize(false);
 
   // ── Etapas 7+8: Clasificación y performance ───────────────────────────────
+  last_good_plane_ = ground_plane_;
   return finalize(true);
 }
 
@@ -347,6 +363,36 @@ float GroundEstimator::stage3_adaptive_tolerance(const CloudStats& stats) const 
   }
   // 3 × ruido estimado, acotado entre 1 cm y 10 cm para estabilidad
   return std::clamp(3.0f * stats.noise_estimate, 0.01f, 0.10f);
+}
+
+GroundEstimator::Plane GroundEstimator::scoreCachedPlane(
+    const std::vector<Point3D>& cloud, float tol) const
+{
+  if (!last_good_plane_.valid || cloud.empty()) return Plane{};
+
+  Plane scored = last_good_plane_;
+  int floor_candidates = 0;
+  int inliers = 0;
+  for (const auto& p : cloud) {
+    if (p.y < cfg_.min_person_height_m) continue;
+    ++floor_candidates;
+    const float r = std::sqrt(p.x*p.x + p.y*p.y + p.z*p.z);
+    const float eps = std::max(tol, cfg_.floor_noise_k * r);
+    if (std::abs(pointPlaneDist(p, last_good_plane_)) < eps) {
+      ++inliers;
+    }
+  }
+
+  if (floor_candidates < cfg_.cached_plane_min_inliers) return Plane{};
+
+  scored.n_inliers = inliers;
+  scored.quality = static_cast<float>(inliers) /
+                   static_cast<float>(floor_candidates);
+  scored.valid =
+      scored.quality >= cfg_.cached_plane_min_quality &&
+      inliers >= cfg_.cached_plane_min_inliers &&
+      stage5_validate(scored);
+  return scored;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

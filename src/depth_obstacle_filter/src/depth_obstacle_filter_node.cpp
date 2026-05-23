@@ -85,6 +85,12 @@ class DepthObstacleFilterNode : public rclcpp::Node {
         declare_parameter<double>("min_person_height_m", 1.3));
     ge_cfg.ceiling_delta_m = static_cast<float>(
         declare_parameter<double>("ceiling_delta_m", 0.1));
+    ge_cfg.enable_plane_cache =
+        declare_parameter<bool>("enable_plane_cache", true);
+    ge_cfg.cached_plane_min_quality = static_cast<float>(
+        declare_parameter<double>("cached_plane_min_quality", 0.45));
+    ge_cfg.cached_plane_min_inliers =
+        declare_parameter<int>("cached_plane_min_inliers", 80);
     ground_estimator_ = std::make_unique<depth_obstacle_filter::GroundEstimator>(ge_cfg);
     perf_log_enabled_ = declare_parameter<bool>("perf_log_enabled", false);
     perf_log_period_s_ = declare_parameter<double>("perf_log_period_s", 5.0);
@@ -331,6 +337,12 @@ class DepthObstacleFilterNode : public rclcpp::Node {
         static_cast<float>(a.x),
         static_cast<float>(a.y),
         static_cast<float>(a.z));
+
+    if (imu_filter_->isDynamic()) {
+      RCLCPP_DEBUG_THROTTLE(get_logger(), *get_clock(), 500,
+          "IMU dinamica: conservando ultima orientacion gravity_aligned");
+      return;
+    }
 
     q_rp_ = aligner_.estimateOrientation(
         imu_filter_->ax(),

@@ -48,6 +48,12 @@ depth_obstacle_filter:
     min_person_height_m: 1.3
     # Margen por encima de la cámara para clasificar como CEILING (m).
     ceiling_delta_m: 0.1
+    # Reutilizar el último plano válido cuando sigue explicando la nube actual.
+    # Evita volver a ejecutar RANSAC completo si la cámara sigue a altura/orientación
+    # coherente respecto del piso.
+    enable_plane_cache: true
+    cached_plane_min_quality: 0.45
+    cached_plane_min_inliers: 80
 
     # ── Performance ─────────────────────────────────────────────────
     perf_log_enabled: true

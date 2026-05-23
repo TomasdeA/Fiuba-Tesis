@@ -74,6 +74,7 @@ class GroundEstimator {
     int   n_voxel;
     int   n_inliers;
     int   ransac_iterations;
+    bool  used_cached_plane;
   };
 
   // ── Configuración ───────────────────────────────────────────────────────────
@@ -104,6 +105,11 @@ class GroundEstimator {
     // Stage 5 — Validación
     float max_tilt_deg    = 15.0f;  ///< Inclinación máxima aceptable del plano del suelo
     float min_quality     = 0.25f;  ///< Calidad mínima (fracción de inliers)
+
+    // Plano temporal cacheado
+    bool  enable_plane_cache = true; ///< Si true, valida el plano previo antes de RANSAC.
+    float cached_plane_min_quality = 0.45f; ///< Fracción mínima para reutilizar el plano.
+    int   cached_plane_min_inliers = 80;    ///< Inliers mínimos para reutilizar el plano.
 
     // Stage 7 — Clasificación
     float ceiling_delta_m = 0.10f; ///< Puntos con Y < -ceiling_delta_m se clasifican
@@ -166,6 +172,9 @@ class GroundEstimator {
   /// Stage 4: RANSAC jerárquico, retorna plano candidato
   Plane stage4_ransac(const std::vector<Point3D>& cloud, float tol, int max_iter) const;
 
+  /// Evalúa si el último plano válido sigue explicando la nube actual.
+  Plane scoreCachedPlane(const std::vector<Point3D>& cloud, float tol) const;
+
   /// Stage 5: validación geométrica del plano
   bool stage5_validate(const Plane& plane) const;
 
@@ -191,6 +200,7 @@ class GroundEstimator {
   // ── Estado ──────────────────────────────────────────────────────────────────
   Config              cfg_;
   Plane               ground_plane_;
+  Plane               last_good_plane_;
   CloudStats          stats_;
   PerfStats           perf_{};
   std::vector<Label>  labels_;

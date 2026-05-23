@@ -179,3 +179,19 @@ TEST(GroundEstimator, AlturaDeCamera) {
   EXPECT_NEAR(h, 1.5f, 0.1f)
       << "Altura estimada: " << h;
 }
+
+TEST(GroundEstimator, ReutilizaPlanoCacheadoEnFrameEstable) {
+  GE::Config cfg;
+  cfg.enable_plane_cache = true;
+  GE estimator(cfg);
+  const auto cloud = makeFlatCloud(800, 1.5f, 0.003f);
+
+  ASSERT_TRUE(estimator.estimate(cloud));
+  EXPECT_FALSE(estimator.perfStats().used_cached_plane);
+  EXPECT_GT(estimator.perfStats().ransac_iterations, 0);
+
+  ASSERT_TRUE(estimator.estimate(cloud));
+  EXPECT_TRUE(estimator.perfStats().used_cached_plane);
+  EXPECT_EQ(estimator.perfStats().ransac_iterations, 0);
+  EXPECT_GT(static_cast<int>(estimator.groundIndices().size()), 100);
+}
