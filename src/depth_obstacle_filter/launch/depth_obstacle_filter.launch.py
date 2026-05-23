@@ -54,6 +54,8 @@ def generate_launch_description():
                         'publish_local_mapper_interface', 'false').lower() == 'true',
                     'orientation_source': context.launch_configurations.get(
                         'orientation_source', 'nav_odom'),
+                    'perf_log_enabled': context.launch_configurations.get(
+                        'performance', 'true').lower() == 'true',
                 },
             ],
             remappings=[
@@ -91,6 +93,11 @@ def generate_launch_description():
             default_value='nav_odom',
             choices=['nav_odom', 'imu_legacy'],
             description='Fuente de roll/pitch: nav_odom o acelerómetro legacy',
+        ),
+        DeclareLaunchArgument(
+            'performance',
+            default_value='true',
+            description='Habilitar logs y acumuladores de performance',
         ),
         OpaqueFunction(function=_make_node),
     ])

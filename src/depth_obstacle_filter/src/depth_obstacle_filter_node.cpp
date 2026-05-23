@@ -70,8 +70,11 @@ class DepthObstacleFilterNode : public rclcpp::Node {
         declare_parameter<double>("range_max_m", 5.0));
     depth_pixel_stride_ = std::max(
         1, static_cast<int>(declare_parameter<int>("depth_pixel_stride", 1)));
+    perf_log_enabled_ = declare_parameter<bool>("perf_log_enabled", false);
+    perf_log_period_s_ = declare_parameter<double>("perf_log_period_s", 5.0);
 
     depth_obstacle_filter::GroundEstimator::Config ge_cfg;
+    ge_cfg.collect_perf_stats = perf_log_enabled_;
     ge_cfg.enable_voxel_filter =
         declare_parameter<bool>("enable_voxel_filter", true);
     ge_cfg.voxel_size_m   = static_cast<float>(
@@ -92,8 +95,6 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     ge_cfg.cached_plane_min_inliers =
         declare_parameter<int>("cached_plane_min_inliers", 80);
     ground_estimator_ = std::make_unique<depth_obstacle_filter::GroundEstimator>(ge_cfg);
-    perf_log_enabled_ = declare_parameter<bool>("perf_log_enabled", false);
-    perf_log_period_s_ = declare_parameter<double>("perf_log_period_s", 5.0);
     empty_obstacle_warn_every_ = declare_parameter<int>("empty_obstacle_warn_every", 5);
     debug_enabled_ = declare_parameter<bool>("debug", false);
     publish_local_mapper_interface_ =
@@ -429,14 +430,21 @@ class DepthObstacleFilterNode : public rclcpp::Node {
 
     struct timespec t_total;
     struct timespec t_stage;
-    clock_gettime(CLOCK_MONOTONIC, &t_total);
+    double t_project_ms = 0.0;
+    double t_range_ms = 0.0;
+    double t_ground_ms = 0.0;
+    double t_publish_ms = 0.0;
+    double t_total_ms = 0.0;
+    if (perf_log_enabled_) {
+      clock_gettime(CLOCK_MONOTONIC, &t_total);
+    }
 
     // ── Retroproyección ───────────────────────────────────────────────────────
-    clock_gettime(CLOCK_MONOTONIC, &t_stage);
+    if (perf_log_enabled_) clock_gettime(CLOCK_MONOTONIC, &t_stage);
     const auto* depth_data = reinterpret_cast<const uint16_t*>(msg->data.data());
     auto points = projector_->projectDepthImage(
         depth_data, msg->width, msg->height, 1e-3f, depth_pixel_stride_);
-    const double t_project_ms = elapsedMs(t_stage);
+    if (perf_log_enabled_) t_project_ms = elapsedMs(t_stage);
 
     // ── Filtrado de rango ─────────────────────────────────────────────────────
     // Puntos en [range_min_m_, range_max_m_) → 'valid' (obstáculos y suelo posibles).
@@ -449,7 +457,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     int nan_count = 0;
     int below_min_count = 0;
     int beyond_count = 0;
-    clock_gettime(CLOCK_MONOTONIC, &t_stage);
+    if (perf_log_enabled_) clock_gettime(CLOCK_MONOTONIC, &t_stage);
     for (const auto& pt : points) {
       if (std::isnan(pt.z)) {
         ++nan_count;
@@ -469,7 +477,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
       }
       valid.push_back(pt);
     }
-    const double t_range_ms = elapsedMs(t_stage);
+    if (perf_log_enabled_) t_range_ms = elapsedMs(t_stage);
 
     // ── Debug: nube cruda en camera_depth_optical_frame ──────────────────────
     if (cloud_pub_ && cloud_pub_->get_subscription_count() > 0) {
@@ -486,7 +494,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
 
     // ── Estimación del suelo y publicación de nubes de salida ─────────────────
     {
-      clock_gettime(CLOCK_MONOTONIC, &t_stage);
+      if (perf_log_enabled_) clock_gettime(CLOCK_MONOTONIC, &t_stage);
       // Rotar a gravity_aligned_frame con la orientación VIO cacheada.
       std::vector<depth_obstacle_filter::GroundEstimator::Point3D> ge_cloud;
       ge_cloud.reserve(valid.size());
@@ -496,7 +504,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
       }
 
       const bool ground_ok = ground_estimator_->estimate(ge_cloud);
-      const double t_ground_ms = elapsedMs(t_stage);
+      if (perf_log_enabled_) t_ground_ms = elapsedMs(t_stage);
 
       std_msgs::msg::Header aligned_hdr;
       aligned_hdr.stamp    = msg->header.stamp;
@@ -534,7 +542,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
       // local_mapper garantiza que cada actualización del mapa usa exactamente
       // los datos del mismo frame de profundidad.
       {
-        clock_gettime(CLOCK_MONOTONIC, &t_stage);
+        if (perf_log_enabled_) clock_gettime(CLOCK_MONOTONIC, &t_stage);
         std_msgs::msg::Header odom_hdr;
         odom_hdr.stamp    = msg->header.stamp;
         odom_hdr.frame_id = "odom";
@@ -598,42 +606,49 @@ class DepthObstacleFilterNode : public rclcpp::Node {
           sensor_pos_pub_->publish(sensor_pos_msg);
         }
 
-        const double t_publish_ms = elapsedMs(t_stage);
-        const double t_total_ms = elapsedMs(t_total);
-        const auto now = get_clock()->now();
-        const auto msg_stamp = rclcpp::Time(msg->header.stamp);
-        const double msg_age_ms = (now - msg_stamp).nanoseconds() / 1e6;
+        if (perf_log_enabled_) {
+          t_publish_ms = elapsedMs(t_stage);
+          t_total_ms = elapsedMs(t_total);
+        }
         const size_t obs_count = ground_estimator_->obstacleIndices().size();
         const size_t ground_count = ground_estimator_->groundIndices().size();
         const size_t ceiling_count = ground_estimator_->ceilingIndices().size();
 
-        perf_ext_.frames++;
-        perf_ext_.sum_project_ms += t_project_ms;
-        perf_ext_.max_project_ms = std::max(perf_ext_.max_project_ms, t_project_ms);
-        perf_ext_.sum_range_ms += t_range_ms;
-        perf_ext_.max_range_ms = std::max(perf_ext_.max_range_ms, t_range_ms);
-        perf_ext_.sum_ground_ms += t_ground_ms;
-        perf_ext_.max_ground_ms = std::max(perf_ext_.max_ground_ms, t_ground_ms);
-        perf_ext_.sum_publish_ms += t_publish_ms;
-        perf_ext_.max_publish_ms = std::max(perf_ext_.max_publish_ms, t_publish_ms);
-        perf_ext_.sum_total_ms += t_total_ms;
-        perf_ext_.max_total_ms = std::max(perf_ext_.max_total_ms, t_total_ms);
-        perf_ext_.sum_age_ms += msg_age_ms;
-        perf_ext_.sum_points_projected += points.size();
-        perf_ext_.sum_valid += valid.size();
-        perf_ext_.sum_beyond += beyond_range_pts.size();
-        perf_ext_.sum_nan += nan_count;
-        perf_ext_.sum_below_min += below_min_count;
-        perf_ext_.sum_beyond_raw += beyond_count;
-        perf_ext_.sum_obstacles += obs_count;
-        perf_ext_.sum_ground += ground_count;
-        perf_ext_.sum_ceiling += ceiling_count;
+        if (perf_log_enabled_) {
+          const auto now = get_clock()->now();
+          const auto msg_stamp = rclcpp::Time(msg->header.stamp);
+          const double msg_age_ms = (now - msg_stamp).nanoseconds() / 1e6;
+          perf_ext_.frames++;
+          perf_ext_.sum_project_ms += t_project_ms;
+          perf_ext_.max_project_ms = std::max(perf_ext_.max_project_ms, t_project_ms);
+          perf_ext_.sum_range_ms += t_range_ms;
+          perf_ext_.max_range_ms = std::max(perf_ext_.max_range_ms, t_range_ms);
+          perf_ext_.sum_ground_ms += t_ground_ms;
+          perf_ext_.max_ground_ms = std::max(perf_ext_.max_ground_ms, t_ground_ms);
+          perf_ext_.sum_publish_ms += t_publish_ms;
+          perf_ext_.max_publish_ms = std::max(perf_ext_.max_publish_ms, t_publish_ms);
+          perf_ext_.sum_total_ms += t_total_ms;
+          perf_ext_.max_total_ms = std::max(perf_ext_.max_total_ms, t_total_ms);
+          perf_ext_.sum_age_ms += msg_age_ms;
+          perf_ext_.sum_points_projected += points.size();
+          perf_ext_.sum_valid += valid.size();
+          perf_ext_.sum_beyond += beyond_range_pts.size();
+          perf_ext_.sum_nan += nan_count;
+          perf_ext_.sum_below_min += below_min_count;
+          perf_ext_.sum_beyond_raw += beyond_count;
+          perf_ext_.sum_obstacles += obs_count;
+          perf_ext_.sum_ground += ground_count;
+          perf_ext_.sum_ceiling += ceiling_count;
+        }
 
         if (obs_count == 0) {
           ++empty_obstacle_streak_;
-          ++perf_ext_.empty_obstacle_frames;
+          if (perf_log_enabled_) ++perf_ext_.empty_obstacle_frames;
           if (empty_obstacle_streak_ == 1 ||
               empty_obstacle_streak_ % empty_obstacle_warn_every_ == 0) {
+            const auto msg_stamp = rclcpp::Time(msg->header.stamp);
+            const double msg_age_ms =
+                (get_clock()->now() - msg_stamp).nanoseconds() / 1e6;
             RCLCPP_WARN(get_logger(),
                 "[empty_obstacles] streak=%d age=%.1fms projected=%zu valid=%zu nan=%d below_min=%d beyond_raw=%d beyond_kept=%zu ground_ok=%d ground=%zu ceiling=%zu",
                 empty_obstacle_streak_,
@@ -653,8 +668,9 @@ class DepthObstacleFilterNode : public rclcpp::Node {
         }
 
         if (perf_log_enabled_ &&
-            (now - last_perf_log_).seconds() >= perf_log_period_s_ &&
+            (get_clock()->now() - last_perf_log_).seconds() >= perf_log_period_s_ &&
             perf_ext_.frames > 0) {
+          const auto now = get_clock()->now();
           const double nf = static_cast<double>(perf_ext_.frames);
           const auto& a = perf_accum_;
           RCLCPP_INFO(get_logger(),
@@ -688,7 +704,9 @@ class DepthObstacleFilterNode : public rclcpp::Node {
       }
 
       // ── Diagnóstico ───────────────────────────────────────────────────────
-      perf_accum_.accumulate(ground_estimator_->perfStats());
+      if (perf_log_enabled_) {
+        perf_accum_.accumulate(ground_estimator_->perfStats());
+      }
 
       if (!ground_ok) {
         RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,

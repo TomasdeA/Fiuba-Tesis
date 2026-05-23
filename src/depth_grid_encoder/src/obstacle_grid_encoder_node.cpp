@@ -120,7 +120,7 @@ private:
     {
         ++cloud_count_;
         struct timespec t0;
-        clock_gettime(CLOCK_MONOTONIC, &t0);
+        if (perf_log_enabled_) clock_gettime(CLOCK_MONOTONIC, &t0);
 
         const int rows = cfg_.rows;
         const int cols = cfg_.cols;
@@ -225,31 +225,38 @@ private:
         grid_pub_->publish(grid);
 
         const bool empty_grid = (nonempty_cells == 0);
-        perf_window_.frames++;
-        perf_window_.sum_points_in += points_in;
-        perf_window_.sum_kept += kept;
-        perf_window_.sum_drop_invalid += drop_invalid;
-        perf_window_.sum_drop_z += drop_z;
-        perf_window_.sum_drop_x += drop_x;
-        perf_window_.sum_drop_y += drop_y;
-        perf_window_.sum_nonempty_cells += static_cast<uint64_t>(nonempty_cells);
+        if (perf_log_enabled_) {
+            perf_window_.frames++;
+            perf_window_.sum_points_in += points_in;
+            perf_window_.sum_kept += kept;
+            perf_window_.sum_drop_invalid += drop_invalid;
+            perf_window_.sum_drop_z += drop_z;
+            perf_window_.sum_drop_x += drop_x;
+            perf_window_.sum_drop_y += drop_y;
+            perf_window_.sum_nonempty_cells += static_cast<uint64_t>(nonempty_cells);
+        }
         if (empty_grid) {
-            ++perf_window_.empty_grids;
+            if (perf_log_enabled_) ++perf_window_.empty_grids;
             ++empty_grid_streak_;
         } else {
             empty_grid_streak_ = 0;
         }
 
-        const auto now_ros = get_clock()->now();
-        const auto msg_stamp = rclcpp::Time(msg->header.stamp);
-        const double msg_age_ms = (now_ros - msg_stamp).nanoseconds() / 1e6;
-        const double total_ms = elapsedMs(t0);
-        perf_window_.sum_msg_age_ms += msg_age_ms;
-        perf_window_.sum_total_ms += total_ms;
-        perf_window_.max_total_ms = std::max(perf_window_.max_total_ms, total_ms);
+        if (perf_log_enabled_) {
+            const auto now_ros = get_clock()->now();
+            const auto msg_stamp = rclcpp::Time(msg->header.stamp);
+            const double msg_age_ms = (now_ros - msg_stamp).nanoseconds() / 1e6;
+            const double total_ms = elapsedMs(t0);
+            perf_window_.sum_msg_age_ms += msg_age_ms;
+            perf_window_.sum_total_ms += total_ms;
+            perf_window_.max_total_ms = std::max(perf_window_.max_total_ms, total_ms);
+        }
 
         if (empty_grid &&
             (empty_grid_streak_ == 1 || empty_grid_streak_ % empty_grid_warn_every_ == 0)) {
+            const auto msg_stamp = rclcpp::Time(msg->header.stamp);
+            const double msg_age_ms =
+                (get_clock()->now() - msg_stamp).nanoseconds() / 1e6;
             RCLCPP_WARN(get_logger(),
                 "[empty_grid] streak=%d points_in=%llu kept=%llu drop_invalid=%llu drop_z=%llu drop_x=%llu drop_y=%llu age=%.1fms",
                 empty_grid_streak_,
@@ -263,8 +270,9 @@ private:
         }
 
         if (perf_log_enabled_ &&
-            (now_ros - last_perf_log_).seconds() >= perf_log_period_s_ &&
+            (get_clock()->now() - last_perf_log_).seconds() >= perf_log_period_s_ &&
             perf_window_.frames > 0) {
+            const auto now_ros = get_clock()->now();
             const double nf = static_cast<double>(perf_window_.frames);
             RCLCPP_INFO(get_logger(),
                 "[PERF %.1fs] frames=%d empty=%d avg_total=%.2fms max_total=%.2fms avg_age=%.1fms avg_points_in=%.0f avg_kept=%.0f avg_cells=%.1f drops(inv/z/x/y)=%.0f/%.0f/%.0f/%.0f",

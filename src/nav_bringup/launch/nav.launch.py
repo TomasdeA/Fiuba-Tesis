@@ -20,6 +20,7 @@ from launch.substitutions import (
 )
 
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -114,6 +115,7 @@ def generate_launch_description():
     pipeline_mode      = LaunchConfiguration('pipeline_mode')
     bag_path           = LaunchConfiguration('bag_path')
     use_bag            = LaunchConfiguration('use_bag')
+    performance        = LaunchConfiguration('performance')
 
     # ── Config file paths ─────────────────────────────────
     depth_to_matrix_cfg = PathJoinSubstitution([
@@ -202,6 +204,7 @@ def generate_launch_description():
             'debug': debug,
             'publish_local_mapper_interface': use_local_mapper,
             'orientation_source': orientation_source,
+            'performance': performance,
         }.items(),
         condition=IfCondition(PythonExpression([
             "'", use_perception, "' == 'true' and '", pipeline_mode, "' == 'filtered'"
@@ -247,7 +250,11 @@ def generate_launch_description():
         name='obstacle_grid_encoder',
         parameters=[
             obstacle_grid_cfg,
-            {'z_min_m': _depth_min_m, 'z_max_m': _depth_max_m},
+            {
+                'z_min_m': _depth_min_m,
+                'z_max_m': _depth_max_m,
+                'perf_log_enabled': ParameterValue(performance, value_type=bool),
+            },
         ],
         output='screen',
         condition=IfCondition(PythonExpression(["'", pipeline_mode, "' == 'filtered'"])),
@@ -424,6 +431,11 @@ def generate_launch_description():
             'use_bag',
             default_value='false',
             description='Play a rosbag instead of (or alongside) the live camera.',
+        ),
+        DeclareLaunchArgument(
+            'performance',
+            default_value='true',
+            description='Enable perception performance logs and accumulators',
         ),
 
         # Nodes — in pipeline order

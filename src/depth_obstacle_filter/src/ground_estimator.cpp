@@ -123,6 +123,7 @@ GroundEstimator::GroundEstimator(const Config& cfg) : cfg_(cfg) {}
 // ═════════════════════════════════════════════════════════════════════════════
 
 bool GroundEstimator::estimate(const std::vector<Point3D>& cloud) {
+  const bool collect_perf = cfg_.collect_perf_stats;
   ground_plane_ = Plane{};
   labels_.assign(cloud.size(), Label::UNKNOWN);
   ground_idx_.clear();
@@ -133,21 +134,24 @@ bool GroundEstimator::estimate(const std::vector<Point3D>& cloud) {
 
   if (cloud.size() < 10) return false;
 
-  struct timespec t_total; clock_gettime(CLOCK_MONOTONIC, &t_total);
+  struct timespec t_total;
+  if (collect_perf) clock_gettime(CLOCK_MONOTONIC, &t_total);
 
   // ── Etapas 1 y 2 en paralelo ─────────────────────────────────────────────
   // stage1_diagnostics y stage2_voxel_sample son const y solo leen 'cloud',
   // sin estado mutable compartido — se lanzan en hilos independientes.
   // Cada lambda mide su propio tiempo para no mezclar las métricas.
-  auto fut_diag = std::async(std::launch::async, [this, &cloud] {
-    struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t);
+  auto fut_diag = std::async(std::launch::async, [this, &cloud, collect_perf] {
+    struct timespec t;
+    if (collect_perf) clock_gettime(CLOCK_MONOTONIC, &t);
     auto s = stage1_diagnostics(cloud);
-    return std::make_pair(s, elapsedMs(t));
+    return std::make_pair(s, collect_perf ? elapsedMs(t) : 0.0f);
   });
-  auto fut_vox = std::async(std::launch::async, [this, &cloud] {
-    struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t);
+  auto fut_vox = std::async(std::launch::async, [this, &cloud, collect_perf] {
+    struct timespec t;
+    if (collect_perf) clock_gettime(CLOCK_MONOTONIC, &t);
     auto v = stage2_voxel_sample(cloud);
-    return std::make_pair(std::move(v), elapsedMs(t));
+    return std::make_pair(std::move(v), collect_perf ? elapsedMs(t) : 0.0f);
   });
 
   auto [stats, t_diag] = fut_diag.get();
@@ -170,7 +174,7 @@ bool GroundEstimator::estimate(const std::vector<Point3D>& cloud) {
   auto finalize = [&](bool ok) -> bool {
     stage7_classify(cloud, ground_plane_, tol);
     perf_.n_inliers = ground_plane_.n_inliers;
-    perf_.time_total_ms = elapsedMs(t_total);
+    if (collect_perf) perf_.time_total_ms = elapsedMs(t_total);
     return ok;
   };
 
@@ -182,7 +186,7 @@ bool GroundEstimator::estimate(const std::vector<Point3D>& cloud) {
   if (cfg_.enable_plane_cache && last_good_plane_.valid) {
     ground_plane_ = scoreCachedPlane(cloud, tol);
     if (ground_plane_.valid) {
-      perf_.time_total_ms = elapsedMs(t_total);
+      if (collect_perf) perf_.time_total_ms = elapsedMs(t_total);
       perf_.n_inliers = ground_plane_.n_inliers;
       perf_.used_cached_plane = true;
       stage7_classify(cloud, ground_plane_, tol);
@@ -192,9 +196,10 @@ bool GroundEstimator::estimate(const std::vector<Point3D>& cloud) {
   }
 
   // ── Etapa 4: RANSAC jerárquico ────────────────────────────────────────────
-  struct timespec t_ransac; clock_gettime(CLOCK_MONOTONIC, &t_ransac);
+  struct timespec t_ransac;
+  if (collect_perf) clock_gettime(CLOCK_MONOTONIC, &t_ransac);
   Plane candidate = stage4_ransac(voxel_cloud, tol, cfg_.ransac_max_iter);
-  perf_.time_ransac_ms = elapsedMs(t_ransac);
+  if (collect_perf) perf_.time_ransac_ms = elapsedMs(t_ransac);
   perf_.ransac_iterations = cfg_.ransac_max_iter;
 
   if (!candidate.valid)            return finalize(false);
@@ -204,9 +209,10 @@ bool GroundEstimator::estimate(const std::vector<Point3D>& cloud) {
 
   // ── Etapa 6: Refinamiento por minimos cuadrados (LS) sobre inliers de la ──
   // ─────────── nube completa ────────────────────────────────────────────────
-  struct timespec t_ref; clock_gettime(CLOCK_MONOTONIC, &t_ref);
+  struct timespec t_ref;
+  if (collect_perf) clock_gettime(CLOCK_MONOTONIC, &t_ref);
   ground_plane_ = stage6_refine(cloud, candidate, tol);
-  perf_.time_refine_ms = elapsedMs(t_ref);
+  if (collect_perf) perf_.time_refine_ms = elapsedMs(t_ref);
 
   if (!ground_plane_.valid)        return finalize(false);
 
