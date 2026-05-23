@@ -67,6 +67,10 @@ def _make_realsense_node(context, *args, **kwargs):
 
     use_visual = context.launch_configurations.get(
         'use_visual_odometry', 'false').lower() == 'true'
+    depth_profile = context.launch_configurations.get(
+        'realsense_depth_profile', '640x480x15')
+    color_profile = context.launch_configurations.get(
+        'realsense_color_profile', '640x480x15')
 
     params = {
         'enable_gyro': True,
@@ -76,16 +80,16 @@ def _make_realsense_node(context, *args, **kwargs):
         'enable_infra2': False,
         'enable_color': use_visual,
         'align_depth.enable': use_visual,
-        'depth_module.depth_profile': '640x480x6',
+        'depth_module.depth_profile': depth_profile,
         'initial_reset': True,
         'reconnect_timeout': 10.0,
     }
     if use_visual:
-        params['rgb_camera.color_profile'] = '640x480x6'
+        params['rgb_camera.color_profile'] = color_profile
 
     mode = 'RGBD visual odometry' if use_visual else 'IMU-only odometry'
     return [
-        LogInfo(msg=f'RealSense stream profile: {mode}'),
+        LogInfo(msg=f'RealSense stream profile: {mode}, depth={depth_profile}'),
         Node(
             package='realsense2_camera',
             executable='realsense2_camera_node',
@@ -116,6 +120,7 @@ def generate_launch_description():
     bag_path           = LaunchConfiguration('bag_path')
     use_bag            = LaunchConfiguration('use_bag')
     performance        = LaunchConfiguration('performance')
+    monitor_signal     = LaunchConfiguration('monitor_signal')
 
     # ── Config file paths ─────────────────────────────────
     depth_to_matrix_cfg = PathJoinSubstitution([
@@ -186,6 +191,7 @@ def generate_launch_description():
             'sensor_depth_min_m': str(_depth_min_m),
             'sensor_depth_max_m': str(_depth_max_m),
             'use_visual_odometry': use_visual_odometry,
+            'performance': performance,
         }.items(),
         condition=IfCondition(PythonExpression([
             "'", use_perception, "' == 'true' and '", pipeline_mode,
@@ -288,6 +294,14 @@ def generate_launch_description():
         condition=IfCondition(use_viz),
     )
 
+    signal_monitor = Node(
+        package='output_viewer',
+        executable='grid_signal_monitor',
+        name='grid_signal_monitor',
+        output='screen',
+        condition=IfCondition(monitor_signal),
+    )
+
     # ── RViz2 (debug view) ────────────────────────────────
     rviz = ExecuteProcess(
         cmd=['rviz2', '-d', nav_rviz],
@@ -347,6 +361,16 @@ def generate_launch_description():
             'use_realsense',
             default_value='true',
             description='Launch RealSense D435i camera driver',
+        ),
+        DeclareLaunchArgument(
+            'realsense_depth_profile',
+            default_value='640x480x15',
+            description='RealSense depth profile WIDTHxHEIGHTxFPS',
+        ),
+        DeclareLaunchArgument(
+            'realsense_color_profile',
+            default_value='640x480x15',
+            description='RealSense color profile WIDTHxHEIGHTxFPS when visual odometry is enabled',
         ),
         DeclareLaunchArgument(
             'use_hw',
@@ -437,6 +461,11 @@ def generate_launch_description():
             default_value='true',
             description='Enable perception performance logs and accumulators',
         ),
+        DeclareLaunchArgument(
+            'monitor_signal',
+            default_value='false',
+            description='Log depth_grid/obstacle_cloud rate, empties and staleness',
+        ),
 
         # Nodes — in pipeline order
         realsense,
@@ -452,6 +481,7 @@ def generate_launch_description():
         #haptic_grid,
         hw_manager,
         viz,
+        signal_monitor,
         rviz,
         odometry_path,
         *recorder_actions,
