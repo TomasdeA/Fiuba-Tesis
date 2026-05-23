@@ -8,5 +8,9 @@ obstacle_grid_encoder:
     x_max_m:  1.0
     # Y fijo en el nodo: [-0.20, 2.20] m (el obstacle_cloud ya viene sin suelo ni techo)
     # Filtro de profundidad Z (hacia adelante, metros) — definido en nav_bringup/config/sensor_range.yaml
+    # Anti-glitch: si el filtro entrega una grilla vacía aislada, conservar por
+    # pocos ms la última grilla no vacía para no apagar los motores por un frame.
+    hold_last_nonempty_grid: true
+    hold_timeout_ms: 250
     perf_log_enabled: true
     perf_log_period_s: 5.0

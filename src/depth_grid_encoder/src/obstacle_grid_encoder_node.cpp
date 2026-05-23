@@ -47,6 +47,9 @@ public:
         perf_log_enabled_ = this->declare_parameter<bool>("perf_log_enabled", false);
         perf_log_period_s_ = this->declare_parameter<double>("perf_log_period_s", 5.0);
         empty_grid_warn_every_ = this->declare_parameter<int>("empty_grid_warn_every", 5);
+        hold_last_nonempty_grid_ =
+            this->declare_parameter<bool>("hold_last_nonempty_grid", true);
+        hold_timeout_ms_ = this->declare_parameter<int>("hold_timeout_ms", 250);
 
         // Y: límites de seguridad. y_max se actualiza al recibir la altura de la cámara
         // publicada por local_mapper tras la calibración inicial.
@@ -88,6 +91,7 @@ public:
             cfg_.z_min_m, cfg_.z_max_m,
             cloud_topic_.c_str());
         last_perf_log_ = get_clock()->now();
+        hold_window_start_ = last_perf_log_;
     }
 
 private:
@@ -222,9 +226,50 @@ private:
             }
         }
 
-        grid_pub_->publish(grid);
-
         const bool empty_grid = (nonempty_cells == 0);
+        const auto now_ros_for_hold = get_clock()->now();
+        bool published_held_grid = false;
+        if (!empty_grid) {
+            last_nonempty_grid_ = grid;
+            last_nonempty_time_ = now_ros_for_hold;
+            has_last_nonempty_grid_ = true;
+            held_grid_streak_ = 0;
+        } else if (hold_last_nonempty_grid_ && has_last_nonempty_grid_) {
+            const double age_ms =
+                (now_ros_for_hold - last_nonempty_time_).nanoseconds() / 1e6;
+            if (age_ms <= static_cast<double>(hold_timeout_ms_)) {
+                auto held = last_nonempty_grid_;
+                held.header = grid.header;
+                grid_pub_->publish(held);
+                published_held_grid = true;
+                ++held_grid_streak_;
+                ++held_grid_total_;
+                ++hold_window_count_;
+                if (held_grid_streak_ > held_grid_max_streak_) {
+                    held_grid_max_streak_ = held_grid_streak_;
+                }
+                const double hold_window_s =
+                    std::max(1e-3, (now_ros_for_hold - hold_window_start_).seconds());
+                const double hold_rate_hz =
+                    static_cast<double>(hold_window_count_) / hold_window_s;
+                RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000,
+                    "[grid_hold] grid vacio reemplazado por ultimo no-vacio "
+                    "age=%.1fms streak=%d max_streak=%d total=%llu"
+                    " window=%d rate=%.2fHz",
+                    age_ms, held_grid_streak_, held_grid_max_streak_,
+                    static_cast<unsigned long long>(held_grid_total_), hold_window_count_,
+                    hold_rate_hz);
+                if (hold_window_s >= 10.0) {
+                    hold_window_start_ = now_ros_for_hold;
+                    hold_window_count_ = 0;
+                }
+            }
+        }
+
+        if (!published_held_grid) {
+            grid_pub_->publish(grid);
+        }
+
         if (perf_log_enabled_) {
             perf_window_.frames++;
             perf_window_.sum_points_in += points_in;
@@ -305,9 +350,19 @@ private:
     bool perf_log_enabled_ = false;
     double perf_log_period_s_ = 5.0;
     int empty_grid_warn_every_ = 5;
+    bool hold_last_nonempty_grid_ = true;
+    int hold_timeout_ms_ = 250;
 
     size_t cloud_count_ = 0;
     int empty_grid_streak_ = 0;
+    int held_grid_streak_ = 0;
+    int held_grid_max_streak_ = 0;
+    int hold_window_count_ = 0;
+    uint64_t held_grid_total_ = 0;
+    bool has_last_nonempty_grid_ = false;
+    custom_interfaces::msg::DepthGrid last_nonempty_grid_;
+    rclcpp::Time last_nonempty_time_{0, 0, RCL_ROS_TIME};
+    rclcpp::Time hold_window_start_{0, 0, RCL_ROS_TIME};
     PerfWindow perf_window_;
     rclcpp::Time last_perf_log_{0, 0, RCL_ROS_TIME};
 
