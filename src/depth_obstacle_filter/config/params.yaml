@@ -55,6 +55,16 @@ depth_obstacle_filter:
     cached_plane_min_quality: 0.45
     cached_plane_min_inliers: 80
 
+    # El obstacle_grid_encoder sólo consume un volumen limitado. Recortar antes
+    # de publicar reduce mucho el costo de serializar /obstacle_cloud en la Raspi.
+    prune_obstacle_cloud_for_grid: true
+    obstacle_cloud_x_min_m: -1.0
+    obstacle_cloud_x_max_m: 1.0
+    obstacle_cloud_y_min_m: -0.20
+    obstacle_cloud_y_default_max_m: 2.20
+    obstacle_cloud_y_margin_m: 0.10
+    async_obstacle_cloud_publish: true
+
     # ── Performance ─────────────────────────────────────────────────
     perf_log_enabled: true
     perf_log_period_s: 5.0

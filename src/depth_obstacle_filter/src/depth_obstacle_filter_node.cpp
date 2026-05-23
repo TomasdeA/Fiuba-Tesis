@@ -37,10 +37,13 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <algorithm>
+#include <condition_variable>
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/imu.hpp>
@@ -122,6 +125,20 @@ class DepthObstacleFilterNode : public rclcpp::Node {
         declare_parameter<int>("height_min_ground_inliers", 50);
     height_max_ground_tilt_deg_ = static_cast<float>(
         declare_parameter<double>("height_max_ground_tilt_deg", 8.0));
+    prune_obstacle_cloud_for_grid_ =
+        declare_parameter<bool>("prune_obstacle_cloud_for_grid", true);
+    obstacle_cloud_x_min_m_ = static_cast<float>(
+        declare_parameter<double>("obstacle_cloud_x_min_m", -1.0));
+    obstacle_cloud_x_max_m_ = static_cast<float>(
+        declare_parameter<double>("obstacle_cloud_x_max_m", 1.0));
+    obstacle_cloud_y_min_m_ = static_cast<float>(
+        declare_parameter<double>("obstacle_cloud_y_min_m", -0.20));
+    obstacle_cloud_y_default_max_m_ = static_cast<float>(
+        declare_parameter<double>("obstacle_cloud_y_default_max_m", 2.20));
+    obstacle_cloud_y_margin_m_ = static_cast<float>(
+        declare_parameter<double>("obstacle_cloud_y_margin_m", 0.10));
+    async_obstacle_cloud_publish_ =
+        declare_parameter<bool>("async_obstacle_cloud_publish", true);
 
     if (useLegacyImuOrientation()) {
       depth_obstacle_filter::ImuFilter::Config imu_cfg;
@@ -190,6 +207,22 @@ class DepthObstacleFilterNode : public rclcpp::Node {
         publish_local_mapper_interface_ ? "true" : "false",
         orientation_source_.c_str());
     last_perf_log_ = get_clock()->now();
+
+    if (async_obstacle_cloud_publish_) {
+      obstacle_publish_thread_ =
+          std::thread(&DepthObstacleFilterNode::obstaclePublishWorker, this);
+    }
+  }
+
+  ~DepthObstacleFilterNode() override {
+    {
+      std::lock_guard<std::mutex> lock(obstacle_publish_mutex_);
+      stop_obstacle_publish_worker_ = true;
+    }
+    obstacle_publish_cv_.notify_one();
+    if (obstacle_publish_thread_.joinable()) {
+      obstacle_publish_thread_.join();
+    }
   }
 
  private:
@@ -535,8 +568,14 @@ class DepthObstacleFilterNode : public rclcpp::Node {
 
       if (has_obstacle_subs) {
         if (perf_log_enabled_) clock_gettime(CLOCK_MONOTONIC, &t_stage);
-        publishIndexedCloud(obstacle_pub_, aligned_hdr, ge_cloud,
-                            ground_estimator_->obstacleIndices());
+        if (prune_obstacle_cloud_for_grid_) {
+          const auto filtered_indices = filterObstacleIndicesForGrid(
+              ge_cloud, ground_estimator_->obstacleIndices());
+          publishObstacleCloud(aligned_hdr, ge_cloud, filtered_indices);
+        } else {
+          publishObstacleCloud(aligned_hdr, ge_cloud,
+                               ground_estimator_->obstacleIndices());
+        }
         if (perf_log_enabled_) t_obstacle_publish_ms = elapsedMs(t_stage);
       }
 
@@ -775,6 +814,74 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     pub->publish(std::move(pc));
   }
 
+  void publishObstacleCloud(
+      const std_msgs::msg::Header& header,
+      const std::vector<depth_obstacle_filter::GroundEstimator::Point3D>& cloud,
+      const std::vector<int>& indices)
+  {
+    if (!async_obstacle_cloud_publish_) {
+      publishIndexedCloud(obstacle_pub_, header, cloud, indices);
+      return;
+    }
+
+    ObstaclePublishJob job;
+    job.header = header;
+    job.points.reserve(indices.size());
+    for (const int idx : indices) {
+      const auto& p = cloud[idx];
+      job.points.push_back({p.x, p.y, p.z});
+    }
+
+    {
+      std::lock_guard<std::mutex> lock(obstacle_publish_mutex_);
+      if (has_obstacle_publish_job_) {
+        ++obstacle_publish_dropped_jobs_;
+      }
+      obstacle_publish_job_ = std::move(job);
+      has_obstacle_publish_job_ = true;
+    }
+    obstacle_publish_cv_.notify_one();
+  }
+
+  void obstaclePublishWorker()
+  {
+    while (rclcpp::ok()) {
+      ObstaclePublishJob job;
+      {
+        std::unique_lock<std::mutex> lock(obstacle_publish_mutex_);
+        obstacle_publish_cv_.wait(lock, [this]() {
+          return stop_obstacle_publish_worker_ || has_obstacle_publish_job_;
+        });
+        if (stop_obstacle_publish_worker_) {
+          return;
+        }
+        job = std::move(obstacle_publish_job_);
+        has_obstacle_publish_job_ = false;
+      }
+      publishCloud(obstacle_pub_, job.header, job.points);
+    }
+  }
+
+  std::vector<int> filterObstacleIndicesForGrid(
+      const std::vector<depth_obstacle_filter::GroundEstimator::Point3D>& cloud,
+      const std::vector<int>& indices) const
+  {
+    std::vector<int> filtered;
+    filtered.reserve(indices.size());
+    const float y_max = height_filter_initialized_
+        ? filtered_camera_height_m_ + obstacle_cloud_y_margin_m_
+        : obstacle_cloud_y_default_max_m_;
+
+    for (const int idx : indices) {
+      const auto& p = cloud[idx];
+      if (p.z < range_min_m_ || p.z > range_max_m_) continue;
+      if (p.x < obstacle_cloud_x_min_m_ || p.x >= obstacle_cloud_x_max_m_) continue;
+      if (p.y < obstacle_cloud_y_min_m_ || p.y >= y_max) continue;
+      filtered.push_back(idx);
+    }
+    return filtered;
+  }
+
   // ── Acumulador de performance ─────────────────────────────────────────────
   struct PerfAccum {
     int    frames     = 0;
@@ -826,6 +933,11 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     uint64_t sum_ceiling = 0;
 
     void reset() { *this = PerfExtAccum{}; }
+  };
+
+  struct ObstaclePublishJob {
+    std_msgs::msg::Header header;
+    std::vector<depth_obstacle_filter::DepthProjector::Point3D> points;
   };
 
   // ── Miembros ──────────────────────────────────────────────────────────────
@@ -884,6 +996,20 @@ class DepthObstacleFilterNode : public rclcpp::Node {
   float height_max_ground_tilt_deg_ = 8.0f;
   float height_min_valid_m_ = 0.5f;
   float height_max_valid_m_ = 2.5f;
+  bool prune_obstacle_cloud_for_grid_ = true;
+  bool async_obstacle_cloud_publish_ = true;
+  float obstacle_cloud_x_min_m_ = -1.0f;
+  float obstacle_cloud_x_max_m_ = 1.0f;
+  float obstacle_cloud_y_min_m_ = -0.20f;
+  float obstacle_cloud_y_default_max_m_ = 2.20f;
+  float obstacle_cloud_y_margin_m_ = 0.10f;
+  std::thread obstacle_publish_thread_;
+  std::mutex obstacle_publish_mutex_;
+  std::condition_variable obstacle_publish_cv_;
+  ObstaclePublishJob obstacle_publish_job_;
+  bool has_obstacle_publish_job_ = false;
+  bool stop_obstacle_publish_worker_ = false;
+  uint64_t obstacle_publish_dropped_jobs_ = 0;
   PerfAccum perf_accum_;
   PerfExtAccum perf_ext_;
   rclcpp::Time last_perf_log_;
