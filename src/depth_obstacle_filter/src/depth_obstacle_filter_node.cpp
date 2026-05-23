@@ -433,6 +433,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     double t_project_ms = 0.0;
     double t_range_ms = 0.0;
     double t_ground_ms = 0.0;
+    double t_obstacle_publish_ms = 0.0;
     double t_publish_ms = 0.0;
     double t_total_ms = 0.0;
     if (perf_log_enabled_) {
@@ -533,8 +534,10 @@ class DepthObstacleFilterNode : public rclcpp::Node {
       }
 
       if (has_obstacle_subs) {
+        if (perf_log_enabled_) clock_gettime(CLOCK_MONOTONIC, &t_stage);
         publishIndexedCloud(obstacle_pub_, aligned_hdr, ge_cloud,
                             ground_estimator_->obstacleIndices());
+        if (perf_log_enabled_) t_obstacle_publish_ms = elapsedMs(t_stage);
       }
 
       // ── Construir y publicar nubes en frame odom ──────────────────────────
@@ -625,6 +628,9 @@ class DepthObstacleFilterNode : public rclcpp::Node {
           perf_ext_.max_range_ms = std::max(perf_ext_.max_range_ms, t_range_ms);
           perf_ext_.sum_ground_ms += t_ground_ms;
           perf_ext_.max_ground_ms = std::max(perf_ext_.max_ground_ms, t_ground_ms);
+          perf_ext_.sum_obstacle_publish_ms += t_obstacle_publish_ms;
+          perf_ext_.max_obstacle_publish_ms =
+              std::max(perf_ext_.max_obstacle_publish_ms, t_obstacle_publish_ms);
           perf_ext_.sum_publish_ms += t_publish_ms;
           perf_ext_.max_publish_ms = std::max(perf_ext_.max_publish_ms, t_publish_ms);
           perf_ext_.sum_total_ms += t_total_ms;
@@ -674,7 +680,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
           const double nf = static_cast<double>(perf_ext_.frames);
           const auto& a = perf_accum_;
           RCLCPP_INFO(get_logger(),
-              "[PERF %.1fs] frames=%d empty_obs=%d age=%.1fms | proj=%.2f/%.2fms range=%.2f/%.2fms ground=%.2f/%.2fms publish=%.2f/%.2fms total=%.2f/%.2fms | pts proj=%.0f valid=%.0f beyond=%.0f nan=%.0f below=%.0f beyond_raw=%.0f obs=%.0f ground=%.0f ceil=%.0f | GE total=%.2fms voxel=%.2fms ransac=%.2fms refine=%.2fms",
+              "[PERF %.1fs] frames=%d empty_obs=%d age=%.1fms | proj=%.2f/%.2fms range=%.2f/%.2fms ground=%.2f/%.2fms obs_pub=%.2f/%.2fms local_pub=%.2f/%.2fms total=%.2f/%.2fms | pts proj=%.0f valid=%.0f beyond=%.0f nan=%.0f below=%.0f beyond_raw=%.0f obs=%.0f ground=%.0f ceil=%.0f | GE total=%.2fms voxel=%.2fms ransac=%.2fms refine=%.2fms",
               perf_log_period_s_,
               perf_ext_.frames,
               perf_ext_.empty_obstacle_frames,
@@ -682,6 +688,8 @@ class DepthObstacleFilterNode : public rclcpp::Node {
               perf_ext_.sum_project_ms / nf, perf_ext_.max_project_ms,
               perf_ext_.sum_range_ms / nf, perf_ext_.max_range_ms,
               perf_ext_.sum_ground_ms / nf, perf_ext_.max_ground_ms,
+              perf_ext_.sum_obstacle_publish_ms / nf,
+              perf_ext_.max_obstacle_publish_ms,
               perf_ext_.sum_publish_ms / nf, perf_ext_.max_publish_ms,
               perf_ext_.sum_total_ms / nf, perf_ext_.max_total_ms,
               static_cast<double>(perf_ext_.sum_points_projected) / nf,
@@ -803,6 +811,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     double sum_project_ms = 0, max_project_ms = 0;
     double sum_range_ms = 0, max_range_ms = 0;
     double sum_ground_ms = 0, max_ground_ms = 0;
+    double sum_obstacle_publish_ms = 0, max_obstacle_publish_ms = 0;
     double sum_publish_ms = 0, max_publish_ms = 0;
     double sum_total_ms = 0, max_total_ms = 0;
     double sum_age_ms = 0;
