@@ -64,6 +64,7 @@ public:
     struct Config {
         ComplementaryFilter::Config filter{};
         RgbdTracker::Config         tracker{};
+        bool collect_perf_stats{true};
         // Escala de confianza para la translación visual.
         // Si la VO es ruidosa, reducir este valor para suavizar la posición.
         float translation_confidence_scale{1.0f};

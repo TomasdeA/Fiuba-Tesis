@@ -64,8 +64,11 @@ void ComplementaryFilter::processImu(double timestamp_s,
     const float g_expected = cfg_.gravity_magnitude;
     const float g_lo = g_expected * (1.f - cfg_.gravity_mag_tolerance);
     const float g_hi = g_expected * (1.f + cfg_.gravity_mag_tolerance);
+    const bool static_norm = cfg_.accel_static_threshold_mps2 > 0.f
+        ? std::abs(a_norm - g_expected) < cfg_.accel_static_threshold_mps2
+        : (a_norm > g_lo && a_norm < g_hi);
 
-    if (a_norm > g_lo && a_norm < g_hi) {
+    if (static_norm) {
         // Vector de gravedad normalizado medido en frame del cuerpo
         const Vec3 a_hat{accel.x / a_norm, accel.y / a_norm, accel.z / a_norm};
 

@@ -38,6 +38,10 @@ nav_odometry:
 
     # Módulo de gravedad esperado [m/s^2].
     gravity_magnitude: 9.807
+    # Sólo usar acelerómetro para corregir tilt si ||a|| está cerca de 1g.
+    # Evita interpretar aceleración lineal de marcha como inclinación real.
+    accel_static_threshold_mps2: 0.5
+    perf_log_enabled: true
 
     # ── Tracker estéreo ───────────────────────────────────────────────────────
     # Umbral de respuesta FAST para detección de esquinas.

@@ -43,10 +43,12 @@ void OdometryEstimator::setDepthFrame(const DepthFrame& frame) {
 }
 
 void OdometryEstimator::processImu(const ImuSample& sample) {
-    {
+    if (cfg_.collect_perf_stats) {
         const auto t0 = std::chrono::steady_clock::now();
         filter_.processImu(sample.timestamp_s, sample.gyro, sample.accel);
         perf_.imu_filter.record(us_since(t0));
+    } else {
+        filter_.processImu(sample.timestamp_s, sample.gyro, sample.accel);
     }
 
     // Actualizar caché de estado a alta frecuencia
@@ -60,17 +62,20 @@ void OdometryEstimator::processImu(const ImuSample& sample) {
 
 void OdometryEstimator::processRgbd(const ColorFrame& frame)
 {
-    const auto t_stereo_start = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point t_stereo_start;
+    if (cfg_.collect_perf_stats) t_stereo_start = std::chrono::steady_clock::now();
 
     // Capturar orientación justo antes de procesar el frame visual
     const Quaternion q_at_capture = filter_.orientation();
 
     // Ejecutar VO
     VisualOdometryResult vo;
-    {
+    if (cfg_.collect_perf_stats) {
         const auto t0 = std::chrono::steady_clock::now();
         vo = tracker_.process(frame);
         perf_.tracker.record(us_since(t0));
+    } else {
+        vo = tracker_.process(frame);
     }
 
     if (!vo.valid) {
@@ -92,7 +97,8 @@ void OdometryEstimator::processRgbd(const ColorFrame& frame)
 
     // ── Aplicar corrección de yaw al filtro + integrar posición ─────────────
     {
-        const auto t0 = std::chrono::steady_clock::now();
+        std::chrono::steady_clock::time_point t0;
+        if (cfg_.collect_perf_stats) t0 = std::chrono::steady_clock::now();
 
         // Capturar la orientación en t-1 ANTES de aplicar la corrección visual,
         // ya que delta_translation está expresado en el frame de la cámara en t-1.
@@ -127,10 +133,10 @@ void OdometryEstimator::processRgbd(const ColorFrame& frame)
             cached_state_.valid             = true;
         }
 
-        perf_.visual_update.record(us_since(t0));
+        if (cfg_.collect_perf_stats) perf_.visual_update.record(us_since(t0));
     }
 
-    perf_.rgbd_total.record(us_since(t_stereo_start));
+    if (cfg_.collect_perf_stats) perf_.rgbd_total.record(us_since(t_stereo_start));
 
     last_visual_t_    = frame.timestamp_s;
     q_at_last_visual_ = filter_.orientation();

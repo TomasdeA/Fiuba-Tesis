@@ -97,6 +97,8 @@ private:
         declare_parameter<double>("alpha_yaw",  0.10);
         declare_parameter<double>("min_visual_confidence", 0.30);
         declare_parameter<double>("gravity_magnitude",     9.807);
+        declare_parameter<double>("accel_static_threshold_mps2", 0.5);
+        declare_parameter<bool>("perf_log_enabled", false);
 
         // Visual odometry (RGBD tracker). Si false, solo corre IMU inercial.
         declare_parameter<bool>("use_visual_odometry", false);
@@ -143,6 +145,10 @@ private:
         cfg.filter.alpha_yaw             = static_cast<float>(get_parameter("alpha_yaw").as_double());
         cfg.filter.min_visual_confidence = static_cast<float>(get_parameter("min_visual_confidence").as_double());
         cfg.filter.gravity_magnitude     = static_cast<float>(get_parameter("gravity_magnitude").as_double());
+        cfg.filter.accel_static_threshold_mps2 =
+            static_cast<float>(get_parameter("accel_static_threshold_mps2").as_double());
+        cfg.collect_perf_stats = get_parameter("perf_log_enabled").as_bool();
+        perf_log_enabled_ = cfg.collect_perf_stats;
 
         cfg.tracker.fast_threshold       = get_parameter("fast_threshold").as_int();
         cfg.tracker.max_features         = get_parameter("max_features").as_int();
@@ -215,10 +221,12 @@ private:
                 "use_visual_odometry=false — solo odometría inercial (roll/pitch por IMU)");
         }
 
-        // Timer de reporte de rendimiento: se dispara cada 5 s.
-        perf_timer_ = create_wall_timer(
-            std::chrono::seconds(5),
-            std::bind(&OdometryNode::logPerfStats, this));
+        if (perf_log_enabled_) {
+            // Timer de reporte de rendimiento: se dispara cada 5 s.
+            perf_timer_ = create_wall_timer(
+                std::chrono::seconds(5),
+                std::bind(&OdometryNode::logPerfStats, this));
+        }
     }
 
     // ── Callbacks ─────────────────────────────────────────────────────────────
@@ -227,7 +235,8 @@ private:
         // Medido:
         // hz: ~200 msg/s
         // bw: ~68 KB/s
-        const auto t0 = std::chrono::steady_clock::now();
+        std::chrono::steady_clock::time_point t0;
+        if (perf_log_enabled_) t0 = std::chrono::steady_clock::now();
         nav_odometry::ImuSample s;
         s.timestamp_s = toSec(msg->header.stamp);
         s.gyro  = {static_cast<float>(msg->angular_velocity.x),
@@ -240,19 +249,20 @@ private:
         s.accel = latest_accel_;
         estimator_->processImu(s);
         publishOdometry(msg->header.stamp);
-        perf_gyro_.record(us_since(t0));
+        if (perf_log_enabled_) perf_gyro_.record(us_since(t0));
     }
 
     void onAccel(const sensor_msgs::msg::Imu::SharedPtr msg) {
         // Medido:
         // hz: ~100 msg/s
         // bw: ~34 KB/s
-        const auto t0 = std::chrono::steady_clock::now();
+        std::chrono::steady_clock::time_point t0;
+        if (perf_log_enabled_) t0 = std::chrono::steady_clock::now();
         // Solo cachear: la integración ocurre en onGyro para mantener dt correcto.
         latest_accel_ = {static_cast<float>(msg->linear_acceleration.x),
                          static_cast<float>(msg->linear_acceleration.y),
                          static_cast<float>(msg->linear_acceleration.z)};
-        perf_accel_.record(us_since(t0));
+        if (perf_log_enabled_) perf_accel_.record(us_since(t0));
     }
 
     void onCameraInfo(const sensor_msgs::msg::CameraInfo::SharedPtr msg) {
@@ -325,14 +335,19 @@ private:
                 "Verificar remap del topic 'depth'.");
         }
 
-        const auto t0 = std::chrono::steady_clock::now();
+        std::chrono::steady_clock::time_point t0;
+        std::chrono::steady_clock::time_point t1;
+        std::chrono::steady_clock::time_point t2;
+        if (perf_log_enabled_) t0 = std::chrono::steady_clock::now();
         estimator_->processRgbd(color_frame);
-        const auto t1 = std::chrono::steady_clock::now();
+        if (perf_log_enabled_) t1 = std::chrono::steady_clock::now();
         publishOdometry(color_msg->header.stamp);
-        const auto t2 = std::chrono::steady_clock::now();
+        if (perf_log_enabled_) t2 = std::chrono::steady_clock::now();
 
-        perf_rgbd_process_.record(us_since(t0, t1));
-        perf_publish_.record(us_since(t1, t2));
+        if (perf_log_enabled_) {
+            perf_rgbd_process_.record(us_since(t0, t1));
+            perf_publish_.record(us_since(t1, t2));
+        }
     }
 
     // ── Reporte de rendimiento ──────────────────────────────────────────────────
@@ -446,6 +461,7 @@ private:
     std::string child_frame_;
     bool        use_visual_odometry_{false};
     bool        intrinsics_set_{false};
+    bool        perf_log_enabled_{false};
     float       depth_scale_m_{0.001f};
     int64_t     depth_frames_received_{0};
 

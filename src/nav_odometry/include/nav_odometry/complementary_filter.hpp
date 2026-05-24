@@ -42,6 +42,7 @@ public:
         // [g*(1-mag_tol), g*(1+mag_tol)] se ignoran para la corrección de tilt.
         float gravity_magnitude{9.807f};
         float gravity_mag_tolerance{0.3f};
+        float accel_static_threshold_mps2{0.5f};
 
         // Máximo dt aceptable [s]. Saltos mayores se ignoran.
         float max_dt_s{0.1f};

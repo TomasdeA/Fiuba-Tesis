@@ -56,7 +56,9 @@ def generate_launch_description():
             parameters=[
                 config_path,
                 {'depth_min_m': depth_min, 'depth_max_m': depth_max,
-                 'use_visual_odometry': use_visual.lower() == 'true'},
+                 'use_visual_odometry': use_visual.lower() == 'true',
+                 'perf_log_enabled': context.launch_configurations.get(
+                     'performance', 'true').lower() == 'true'},
             ],
             remappings=[
                 ('gyro',         hw_gyro),
@@ -84,6 +86,11 @@ def generate_launch_description():
             'use_visual_odometry',
             default_value='false',
             description='Habilitar tracker RGBD (visual odometry). Si false, solo IMU inercial.',
+        ),
+        DeclareLaunchArgument(
+            'performance',
+            default_value='true',
+            description='Habilitar logs y acumuladores de performance',
         ),
         OpaqueFunction(function=_make_node),
     ])
