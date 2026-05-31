@@ -7,8 +7,9 @@ obstacle_grid_encoder:
     # Las filas siguen siendo franjas metricas de Y (+Y apunta hacia abajo).
     # Para volver al particionado historico por franjas metricas X/Y: "metric".
     grid_mapping_mode: "angular"
-    h_angle_min_deg: -45.0
-    h_angle_max_deg:  45.0
+    h_aperture_deg: 45.0
+    h_aperture_min_deg: 15.0
+    h_aperture_max_deg: 70.0
     y_min_m: -0.20
     y_default_max_m: 2.20
     y_margin_m: 0.10

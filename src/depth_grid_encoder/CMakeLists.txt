@@ -14,6 +14,7 @@ endif()
 # Dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rcl_interfaces REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(custom_interfaces REQUIRED)
@@ -47,6 +48,7 @@ target_include_directories(obstacle_grid_encoder PUBLIC
 
 ament_target_dependencies(obstacle_grid_encoder
     rclcpp
+    rcl_interfaces
     sensor_msgs
     std_msgs
     custom_interfaces)
@@ -63,5 +65,5 @@ install(DIRECTORY config launch
   OPTIONAL)
 
 ament_export_include_directories(include)
-ament_export_dependencies(rclcpp sensor_msgs std_msgs)
+ament_export_dependencies(rclcpp rcl_interfaces sensor_msgs std_msgs)
 ament_package()

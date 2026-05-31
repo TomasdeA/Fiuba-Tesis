@@ -294,8 +294,9 @@ def generate_launch_description():
         condition=IfCondition(use_viz),
         parameters=[{
             'flip_rows_for_display': False,
-            'h_angle_min_deg': -45.0,
-            'h_angle_max_deg': 45.0,
+            'h_aperture_deg': 45.0,
+            'h_aperture_min_deg': 15.0,
+            'h_aperture_max_deg': 70.0,
         }],
     )
 

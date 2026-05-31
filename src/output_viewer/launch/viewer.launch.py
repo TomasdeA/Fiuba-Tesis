@@ -14,8 +14,9 @@ def generate_launch_description():
     use_odometry_path = LaunchConfiguration('use_odometry_path')
     flip_rows_for_display = LaunchConfiguration('flip_rows_for_display')
     pygame_view_mode = LaunchConfiguration('pygame_view_mode')
-    h_angle_min_deg = LaunchConfiguration('h_angle_min_deg')
-    h_angle_max_deg = LaunchConfiguration('h_angle_max_deg')
+    h_aperture_deg = LaunchConfiguration('h_aperture_deg')
+    h_aperture_min_deg = LaunchConfiguration('h_aperture_min_deg')
+    h_aperture_max_deg = LaunchConfiguration('h_aperture_max_deg')
 
     nav_rviz = PathJoinSubstitution([
         FindPackageShare('output_viewer'),
@@ -35,12 +36,16 @@ def generate_launch_description():
                 value_type=bool,
             ),
             'pygame_view_mode': pygame_view_mode,
-            'h_angle_min_deg': ParameterValue(
-                h_angle_min_deg,
+            'h_aperture_deg': ParameterValue(
+                h_aperture_deg,
                 value_type=float,
             ),
-            'h_angle_max_deg': ParameterValue(
-                h_angle_max_deg,
+            'h_aperture_min_deg': ParameterValue(
+                h_aperture_min_deg,
+                value_type=float,
+            ),
+            'h_aperture_max_deg': ParameterValue(
+                h_aperture_max_deg,
                 value_type=float,
             ),
         }],
@@ -99,8 +104,9 @@ def generate_launch_description():
             default_value='curved',
             description='Pygame view mode: curved or grid',
         ),
-        DeclareLaunchArgument('h_angle_min_deg', default_value='-45.0'),
-        DeclareLaunchArgument('h_angle_max_deg', default_value='45.0'),
+        DeclareLaunchArgument('h_aperture_deg', default_value='45.0'),
+        DeclareLaunchArgument('h_aperture_min_deg', default_value='15.0'),
+        DeclareLaunchArgument('h_aperture_max_deg', default_value='70.0'),
         heatmap,
         signal_monitor,
         odometry_path,

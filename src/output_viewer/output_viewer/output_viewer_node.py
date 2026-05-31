@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 
 from custom_interfaces.msg import DepthGrid
+from rcl_interfaces.msg import Parameter
+from rcl_interfaces.msg import ParameterType
+from rcl_interfaces.msg import ParameterValue
+from rcl_interfaces.srv import SetParameters
 
 import math
+import time
 
 import numpy as np
 
@@ -90,8 +95,11 @@ class DepthGridHeatmapNode(Node):
         self.declare_parameter('render_backend', 'pygame')
         self.declare_parameter('flip_rows_for_display', False)
         self.declare_parameter('pygame_view_mode', 'curved')
-        self.declare_parameter('h_angle_min_deg', -45.0)
-        self.declare_parameter('h_angle_max_deg', 45.0)
+        self.declare_parameter('aperture_control_enabled', True)
+        self.declare_parameter('encoder_node_name', '/obstacle_grid_encoder')
+        self.declare_parameter('h_aperture_deg', 45.0)
+        self.declare_parameter('h_aperture_min_deg', 15.0)
+        self.declare_parameter('h_aperture_max_deg', 70.0)
 
         self.topic = str(self.get_parameter('topic').value)
         self.z_min = float(self.get_parameter('z_min').value)
@@ -111,12 +119,26 @@ class DepthGridHeatmapNode(Node):
                 'usando curved'
             )
             self.pygame_view_mode = 'curved'
-        self.h_angle_min_deg = float(
-            self.get_parameter('h_angle_min_deg').value
+        self.aperture_control_enabled = bool(
+            self.get_parameter('aperture_control_enabled').value
         )
-        self.h_angle_max_deg = float(
-            self.get_parameter('h_angle_max_deg').value
+        self.encoder_node_name = str(
+            self.get_parameter('encoder_node_name').value
         )
+        self.h_aperture_deg = float(
+            self.get_parameter('h_aperture_deg').value
+        )
+        self.h_aperture_min_deg = float(
+            self.get_parameter('h_aperture_min_deg').value
+        )
+        self.h_aperture_max_deg = float(
+            self.get_parameter('h_aperture_max_deg').value
+        )
+        self.h_aperture_deg = float(np.clip(
+            self.h_aperture_deg,
+            self.h_aperture_min_deg,
+            self.h_aperture_max_deg,
+        ))
         self.render_backend = str(
             self.get_parameter('render_backend').value
         ).lower()
@@ -134,6 +156,16 @@ class DepthGridHeatmapNode(Node):
         self.latest_cnt = None   # count
         self.latest_shape = None
         self._dirty = False
+        self._dragging_aperture = False
+        self._last_aperture_send_s = 0.0
+        self._aperture_pending = False
+        self._aperture_client = None
+        if self.aperture_control_enabled:
+            service_name = f'{self.encoder_node_name}/set_parameters'
+            self._aperture_client = self.create_client(
+                SetParameters,
+                service_name,
+            )
 
         self._closing = False
         if self.render_backend == 'matplotlib':
@@ -150,7 +182,8 @@ class DepthGridHeatmapNode(Node):
             f'z_max={self.z_max}m | refresh={self.refresh_hz}Hz '
             f'| backend={self.render_backend} '
             f'| flip_rows={self.flip_rows_for_display} '
-            f'| pygame_view={self.pygame_view_mode}'
+            f'| pygame_view={self.pygame_view_mode} '
+            f'| aperture={self.h_aperture_deg:.1f}deg'
         )
 
     def _setup_matplotlib(self):
@@ -236,8 +269,80 @@ class DepthGridHeatmapNode(Node):
         self.ax.set_ylim(rows - 0.5, -0.5)  # pantalla: y crece hacia abajo
         self.ax.grid(False)
 
+    def _slider_rect(self):
+        width, _height = self.screen.get_size()
+        return pygame.Rect(190, 46, max(220, width - 390), 10)
+
+    def _aperture_from_x(self, x: int) -> float:
+        rect = self._slider_rect()
+        t = (x - rect.left) / max(1, rect.width)
+        t = float(np.clip(t, 0.0, 1.0))
+        return (
+            self.h_aperture_min_deg +
+            t * (self.h_aperture_max_deg - self.h_aperture_min_deg)
+        )
+
+    def _set_local_aperture(self, value: float):
+        self.h_aperture_deg = float(np.clip(
+            value,
+            self.h_aperture_min_deg,
+            self.h_aperture_max_deg,
+        ))
+        self._dirty = True
+
+    def _send_aperture(self, force=False):
+        if self._aperture_client is None:
+            return
+
+        now = time.monotonic()
+        if not force and now - self._last_aperture_send_s < 0.15:
+            return
+        self._last_aperture_send_s = now
+
+        param = Parameter()
+        param.name = 'h_aperture_deg'
+        param.value = ParameterValue()
+        param.value.type = ParameterType.PARAMETER_DOUBLE
+        param.value.double_value = float(self.h_aperture_deg)
+
+        req = SetParameters.Request()
+        req.parameters = [param]
+        if self._aperture_client.service_is_ready():
+            self._aperture_client.call_async(req)
+            self._aperture_pending = False
+        else:
+            self._aperture_pending = True
+
+    def _handle_aperture_event(self, event):
+        if not self.aperture_control_enabled:
+            return False
+
+        rect = self._slider_rect().inflate(18, 22)
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if rect.collidepoint(event.pos):
+                self._dragging_aperture = True
+                self._set_local_aperture(self._aperture_from_x(event.pos[0]))
+                self._send_aperture(force=True)
+                return True
+
+        if event.type == pygame.MOUSEMOTION and self._dragging_aperture:
+            self._set_local_aperture(self._aperture_from_x(event.pos[0]))
+            self._send_aperture()
+            return True
+
+        if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            if self._dragging_aperture:
+                self._dragging_aperture = False
+                self._set_local_aperture(self._aperture_from_x(event.pos[0]))
+                self._send_aperture(force=True)
+                return True
+
+        return False
+
     def _handle_events(self):
         for event in pygame.event.get():
+            if self._handle_aperture_event(event):
+                continue
             if event.type == pygame.QUIT:
                 self._on_close()
             elif (
@@ -259,7 +364,8 @@ class DepthGridHeatmapNode(Node):
             self.font,
             FG,
         )
-        self._draw_text('Esperando DepthGrid...', (24, 52), self.font, FG)
+        self._draw_aperture_slider()
+        self._draw_text('Esperando DepthGrid...', (24, 76), self.font, FG)
         pygame.display.flip()
 
     def _draw_text(
@@ -278,6 +384,43 @@ class DepthGridHeatmapNode(Node):
             rect.topleft = pos
         self.screen.blit(surf, rect)
         return rect
+
+    def _draw_aperture_slider(self):
+        if not self.aperture_control_enabled:
+            return
+
+        rect = self._slider_rect()
+        label = f'apertura horizontal ±{self.h_aperture_deg:.0f}°'
+        self._draw_text(label, (24, 38), self.font, FG)
+
+        pygame.draw.line(
+            self.screen,
+            (170, 170, 170),
+            rect.midleft,
+            rect.midright,
+            4,
+        )
+        t = (
+            (self.h_aperture_deg - self.h_aperture_min_deg) /
+            max(1e-3, self.h_aperture_max_deg - self.h_aperture_min_deg)
+        )
+        knob_x = rect.left + int(round(t * rect.width))
+        pygame.draw.circle(self.screen, (35, 35, 35), (knob_x, rect.centery), 8)
+
+        self._draw_text(
+            f'{self.h_aperture_min_deg:.0f}°',
+            (rect.left, rect.bottom + 8),
+            self.small_font,
+            FG,
+            center=True,
+        )
+        self._draw_text(
+            f'{self.h_aperture_max_deg:.0f}°',
+            (rect.right, rect.bottom + 8),
+            self.small_font,
+            FG,
+            center=True,
+        )
 
     def _cell_rect(
         self,
@@ -301,7 +444,7 @@ class DepthGridHeatmapNode(Node):
     def _layout(self, rows: int, cols: int):
         width, height = self.screen.get_size()
         margin = 24
-        title_h = 34
+        title_h = 72
         tick_left = 42
         tick_bottom = 32
         cbar_w = 28
@@ -329,8 +472,8 @@ class DepthGridHeatmapNode(Node):
         return np.deg2rad(np.linspace(min_deg, max_deg, count + 1))
 
     def _project_curved(self, rect, h_angle: float, row_pos: float):
-        h_min = math.radians(self.h_angle_min_deg)
-        h_max = math.radians(self.h_angle_max_deg)
+        h_min = math.radians(-self.h_aperture_deg)
+        h_max = math.radians(self.h_aperture_deg)
 
         max_abs_h = max(abs(h_min), abs(h_max), 1e-3)
         x_norm = math.sin(h_angle) / math.sin(max_abs_h)
@@ -352,6 +495,7 @@ class DepthGridHeatmapNode(Node):
             self.font,
             FG,
         )
+        self._draw_aperture_slider()
 
         plot_rect, cbar_rect = self._layout(rows, cols)
         plot_rect = plot_rect.inflate(-8, -42)
@@ -359,8 +503,8 @@ class DepthGridHeatmapNode(Node):
 
         rgb = intensity_to_rgb(m)
         h_edges = self._angle_edges(
-            self.h_angle_min_deg,
-            self.h_angle_max_deg,
+            -self.h_aperture_deg,
+            self.h_aperture_deg,
             cols,
         )
         row_edges = np.linspace(0.0, 1.0, rows + 1)
@@ -422,8 +566,8 @@ class DepthGridHeatmapNode(Node):
                     )
 
         for c in range(cols + 1):
-            angle_deg = self.h_angle_min_deg + (
-                self.h_angle_max_deg - self.h_angle_min_deg
+            angle_deg = -self.h_aperture_deg + (
+                2.0 * self.h_aperture_deg
             ) * c / cols
             if c in (0, cols // 2, cols):
                 p = self._project_curved(plot_rect, h_edges[c], row_edges[-1])
@@ -484,6 +628,7 @@ class DepthGridHeatmapNode(Node):
             self.font,
             FG,
         )
+        self._draw_aperture_slider()
 
         plot_rect, cbar_rect = self._layout(rows, cols)
         rgb = intensity_to_rgb(m)
@@ -689,6 +834,8 @@ class DepthGridHeatmapNode(Node):
     def on_timer(self):
         if self.render_backend == 'pygame':
             self._handle_events()
+            if self._aperture_pending:
+                self._send_aperture(force=True)
         if self._closing:
             return
         if self.latest_m is None or not self._dirty:

@@ -1,5 +1,6 @@
 #include <rclcpp/rclcpp.hpp>
 #include <algorithm>
+#include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
 #include <std_msgs/msg/float32.hpp>
@@ -49,10 +50,13 @@ public:
         x_max_ = static_cast<float>(this->declare_parameter<double>("x_max_m",  3.0));
         grid_mapping_mode_ = this->declare_parameter<std::string>(
             "grid_mapping_mode", "angular");
-        h_angle_min_rad_ = deg2rad(static_cast<float>(
-            this->declare_parameter<double>("h_angle_min_deg", -45.0)));
-        h_angle_max_rad_ = deg2rad(static_cast<float>(
-            this->declare_parameter<double>("h_angle_max_deg", 45.0)));
+        h_aperture_min_deg_ = static_cast<float>(
+            this->declare_parameter<double>("h_aperture_min_deg", 15.0));
+        h_aperture_max_deg_ = static_cast<float>(
+            this->declare_parameter<double>("h_aperture_max_deg", 70.0));
+        h_aperture_deg_ = static_cast<float>(
+            this->declare_parameter<double>("h_aperture_deg", 45.0));
+        clampAperture();
         y_min_ = static_cast<float>(
             this->declare_parameter<double>("y_min_m", -0.20));
         y_default_max_m_ = static_cast<float>(
@@ -66,6 +70,10 @@ public:
                 grid_mapping_mode_.c_str());
             grid_mapping_mode_ = "angular";
         }
+        param_cb_handle_ = this->add_on_set_parameters_callback(
+            [this](const std::vector<rclcpp::Parameter>& params) {
+                return this->onSetParameters(params);
+            });
         perf_log_enabled_ = this->declare_parameter<bool>("perf_log_enabled", false);
         perf_log_period_s_ = this->declare_parameter<double>("perf_log_period_s", 5.0);
         empty_grid_warn_every_ = this->declare_parameter<int>("empty_grid_warn_every", 5);
@@ -103,13 +111,13 @@ public:
         RCLCPP_INFO(get_logger(),
             "ObstacleGridEncoder iniciado. Grid=%dx%d, X=[%.1f,%.1f], "
             "Y=[%.2f,%.2f] (guardia seguridad), Z=[%.2f,%.2f], "
-            "mode=%s, h=[%.1f,%.1f]deg. "
+            "mode=%s, h_aperture=%.1fdeg. "
             "Esperando nube en %s",
             cfg_.rows, cfg_.cols,
             x_min_, x_max_, y_min_, y_max_,
             cfg_.z_min_m, cfg_.z_max_m,
             grid_mapping_mode_.c_str(),
-            rad2deg(h_angle_min_rad_), rad2deg(h_angle_max_rad_),
+            h_aperture_deg_,
             cloud_topic_.c_str());
         last_perf_log_ = get_clock()->now();
         hold_window_start_ = last_perf_log_;
@@ -159,6 +167,47 @@ private:
         return (idx >= 0 && idx < bins) ? idx : -1;
     }
 
+    void clampAperture()
+    {
+        if (h_aperture_min_deg_ <= 0.0f) h_aperture_min_deg_ = 1.0f;
+        if (h_aperture_max_deg_ < h_aperture_min_deg_) {
+            h_aperture_max_deg_ = h_aperture_min_deg_;
+        }
+        h_aperture_deg_ =
+            std::clamp(h_aperture_deg_, h_aperture_min_deg_, h_aperture_max_deg_);
+    }
+
+    rcl_interfaces::msg::SetParametersResult onSetParameters(
+        const std::vector<rclcpp::Parameter>& params)
+    {
+        auto result = rcl_interfaces::msg::SetParametersResult();
+        result.successful = true;
+
+        for (const auto& param : params) {
+            if (param.get_name() != "h_aperture_deg") {
+                continue;
+            }
+
+            const double value = param.as_double();
+            if (!std::isfinite(value) ||
+                value < h_aperture_min_deg_ ||
+                value > h_aperture_max_deg_) {
+                result.successful = false;
+                result.reason =
+                    "h_aperture_deg fuera de rango [" +
+                    std::to_string(h_aperture_min_deg_) + ", " +
+                    std::to_string(h_aperture_max_deg_) + "]";
+                return result;
+            }
+
+            h_aperture_deg_ = static_cast<float>(value);
+            RCLCPP_INFO(get_logger(),
+                "[apertura] h_aperture_deg=%.1f", h_aperture_deg_);
+        }
+
+        return result;
+    }
+
     void onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg)
     {
         ++cloud_count_;
@@ -177,6 +226,8 @@ private:
 
         const float x_range = x_max_ - x_min_;
         const float y_range = y_max_ - y_min_;
+        const float h_min_rad = deg2rad(-h_aperture_deg_);
+        const float h_max_rad = deg2rad( h_aperture_deg_);
         const uint64_t points_in = static_cast<uint64_t>(msg->width) *
                                    static_cast<uint64_t>(msg->height);
         uint64_t kept = 0;
@@ -224,7 +275,7 @@ private:
                     // Columnas angulares respecto de la camara.
                     // Las filas siguen siendo franjas metricas de Y.
                     const float h = std::atan2(px, pz);
-                    c = binIndex(h, h_angle_min_rad_, h_angle_max_rad_, cols);
+                    c = binIndex(h, h_min_rad, h_max_rad, cols);
                     if (c < 0) {
                         ++drop_x;
                         continue;
@@ -402,8 +453,9 @@ private:
     tesis_nav::GridConfig cfg_;
     float x_min_, x_max_, y_min_, y_max_;
     std::string grid_mapping_mode_{"angular"};
-    float h_angle_min_rad_{-0.7853982f};
-    float h_angle_max_rad_{ 0.7853982f};
+    float h_aperture_deg_{45.0f};
+    float h_aperture_min_deg_{15.0f};
+    float h_aperture_max_deg_{70.0f};
     float y_default_max_m_ = 2.20f;
     float y_margin_m_ = 0.10f;
     bool perf_log_enabled_ = false;
@@ -429,6 +481,8 @@ private:
     rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr         height_sub_;
     rclcpp::Publisher<custom_interfaces::msg::DepthGrid>::SharedPtr grid_pub_;
     rclcpp::TimerBase::SharedPtr heartbeat_;
+    rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr
+        param_cb_handle_;
 };
 
 int main(int argc, char ** argv)
