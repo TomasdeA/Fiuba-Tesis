@@ -16,8 +16,6 @@ def generate_launch_description():
     pygame_view_mode = LaunchConfiguration('pygame_view_mode')
     h_angle_min_deg = LaunchConfiguration('h_angle_min_deg')
     h_angle_max_deg = LaunchConfiguration('h_angle_max_deg')
-    v_angle_min_deg = LaunchConfiguration('v_angle_min_deg')
-    v_angle_max_deg = LaunchConfiguration('v_angle_max_deg')
 
     nav_rviz = PathJoinSubstitution([
         FindPackageShare('output_viewer'),
@@ -43,14 +41,6 @@ def generate_launch_description():
             ),
             'h_angle_max_deg': ParameterValue(
                 h_angle_max_deg,
-                value_type=float,
-            ),
-            'v_angle_min_deg': ParameterValue(
-                v_angle_min_deg,
-                value_type=float,
-            ),
-            'v_angle_max_deg': ParameterValue(
-                v_angle_max_deg,
                 value_type=float,
             ),
         }],
@@ -111,8 +101,6 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument('h_angle_min_deg', default_value='-45.0'),
         DeclareLaunchArgument('h_angle_max_deg', default_value='45.0'),
-        DeclareLaunchArgument('v_angle_min_deg', default_value='-30.0'),
-        DeclareLaunchArgument('v_angle_max_deg', default_value='30.0'),
         heatmap,
         signal_monitor,
         odometry_path,

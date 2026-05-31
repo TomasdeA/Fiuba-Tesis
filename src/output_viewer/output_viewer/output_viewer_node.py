@@ -92,8 +92,6 @@ class DepthGridHeatmapNode(Node):
         self.declare_parameter('pygame_view_mode', 'curved')
         self.declare_parameter('h_angle_min_deg', -45.0)
         self.declare_parameter('h_angle_max_deg', 45.0)
-        self.declare_parameter('v_angle_min_deg', -30.0)
-        self.declare_parameter('v_angle_max_deg', 30.0)
 
         self.topic = str(self.get_parameter('topic').value)
         self.z_min = float(self.get_parameter('z_min').value)
@@ -118,12 +116,6 @@ class DepthGridHeatmapNode(Node):
         )
         self.h_angle_max_deg = float(
             self.get_parameter('h_angle_max_deg').value
-        )
-        self.v_angle_min_deg = float(
-            self.get_parameter('v_angle_min_deg').value
-        )
-        self.v_angle_max_deg = float(
-            self.get_parameter('v_angle_max_deg').value
         )
         self.render_backend = str(
             self.get_parameter('render_backend').value
@@ -336,26 +328,19 @@ class DepthGridHeatmapNode(Node):
     def _angle_edges(self, min_deg: float, max_deg: float, count: int):
         return np.deg2rad(np.linspace(min_deg, max_deg, count + 1))
 
-    def _project_curved(self, rect, h_angle: float, v_angle: float):
+    def _project_curved(self, rect, h_angle: float, row_pos: float):
         h_min = math.radians(self.h_angle_min_deg)
         h_max = math.radians(self.h_angle_max_deg)
-        v_min = math.radians(self.v_angle_min_deg)
-        v_max = math.radians(self.v_angle_max_deg)
 
         max_abs_h = max(abs(h_min), abs(h_max), 1e-3)
         x_norm = math.sin(h_angle) / math.sin(max_abs_h)
         x = rect.centerx + x_norm * rect.width * 0.5
 
-        tan_min = math.tan(v_min)
-        tan_max = math.tan(v_max)
-        tan_range = max(tan_max - tan_min, 1e-3)
-        y_norm = (math.tan(v_angle) - tan_min) / tan_range
-
         curve_norm = (1.0 - math.cos(h_angle)) / max(
             1.0 - math.cos(max_abs_h),
             1e-3,
         )
-        y = rect.top + y_norm * rect.height + curve_norm * 34.0
+        y = rect.top + row_pos * rect.height + curve_norm * 34.0
         return int(round(x)), int(round(y))
 
     def _draw_heatmap_curved(self, m: np.ndarray, cnt: np.ndarray):
@@ -378,11 +363,7 @@ class DepthGridHeatmapNode(Node):
             self.h_angle_max_deg,
             cols,
         )
-        v_edges = self._angle_edges(
-            self.v_angle_min_deg,
-            self.v_angle_max_deg,
-            rows,
-        )
+        row_edges = np.linspace(0.0, 1.0, rows + 1)
 
         for r in range(rows):
             view_r = display_row(rows, r, self.flip_rows_for_display)
@@ -392,22 +373,22 @@ class DepthGridHeatmapNode(Node):
                     self._project_curved(
                         plot_rect,
                         h_edges[c],
-                        v_edges[view_r],
+                        row_edges[view_r],
                     ),
                     self._project_curved(
                         plot_rect,
                         h_edges[c + 1],
-                        v_edges[view_r],
+                        row_edges[view_r],
                     ),
                     self._project_curved(
                         plot_rect,
                         h_edges[c + 1],
-                        v_edges[view_r + 1],
+                        row_edges[view_r + 1],
                     ),
                     self._project_curved(
                         plot_rect,
                         h_edges[c],
-                        v_edges[view_r + 1],
+                        row_edges[view_r + 1],
                     ),
                 ]
                 pygame.draw.polygon(self.screen, color, points)
@@ -445,7 +426,7 @@ class DepthGridHeatmapNode(Node):
                 self.h_angle_max_deg - self.h_angle_min_deg
             ) * c / cols
             if c in (0, cols // 2, cols):
-                p = self._project_curved(plot_rect, h_edges[c], v_edges[-1])
+                p = self._project_curved(plot_rect, h_edges[c], row_edges[-1])
                 self._draw_text(
                     f'{angle_deg:.0f}°',
                     (p[0], p[1] + 18),

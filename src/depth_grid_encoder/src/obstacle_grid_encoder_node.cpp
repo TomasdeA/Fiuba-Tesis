@@ -53,10 +53,13 @@ public:
             this->declare_parameter<double>("h_angle_min_deg", -45.0)));
         h_angle_max_rad_ = deg2rad(static_cast<float>(
             this->declare_parameter<double>("h_angle_max_deg", 45.0)));
-        v_angle_min_rad_ = deg2rad(static_cast<float>(
-            this->declare_parameter<double>("v_angle_min_deg", -30.0)));
-        v_angle_max_rad_ = deg2rad(static_cast<float>(
-            this->declare_parameter<double>("v_angle_max_deg", 30.0)));
+        y_min_ = static_cast<float>(
+            this->declare_parameter<double>("y_min_m", -0.20));
+        y_default_max_m_ = static_cast<float>(
+            this->declare_parameter<double>("y_default_max_m", 2.20));
+        y_margin_m_ = static_cast<float>(
+            this->declare_parameter<double>("y_margin_m", 0.10));
+        y_max_ = y_default_max_m_;
         if (grid_mapping_mode_ != "angular" && grid_mapping_mode_ != "metric") {
             RCLCPP_WARN(get_logger(),
                 "grid_mapping_mode='%s' invalido; usando angular",
@@ -70,16 +73,11 @@ public:
             this->declare_parameter<bool>("hold_last_nonempty_grid", true);
         hold_timeout_ms_ = this->declare_parameter<int>("hold_timeout_ms", 250);
 
-        // Y: límites de seguridad. y_max se actualiza al recibir la altura de la cámara
-        // publicada por local_mapper tras la calibración inicial.
-        y_min_ = -0.20f;  // 20 cm por encima de la cámara (guardia fija)
-        y_max_ =  2.20f;  // conservador hasta recibir /depth_obstacle_filter/camera_height
-
         height_sub_ = this->create_subscription<std_msgs::msg::Float32>(
             "/depth_obstacle_filter/camera_height",
             rclcpp::QoS(1).transient_local(),
             [this](std_msgs::msg::Float32::SharedPtr msg) {
-                const float new_y_max = msg->data + 0.10f;  // +10 cm margen bajo el suelo
+                const float new_y_max = msg->data + y_margin_m_;
                 if (std::abs(new_y_max - y_max_) > 0.01f) {
                     y_max_ = new_y_max;
                     RCLCPP_INFO(get_logger(),
@@ -105,14 +103,13 @@ public:
         RCLCPP_INFO(get_logger(),
             "ObstacleGridEncoder iniciado. Grid=%dx%d, X=[%.1f,%.1f], "
             "Y=[%.2f,%.2f] (guardia seguridad), Z=[%.2f,%.2f], "
-            "mode=%s, h=[%.1f,%.1f]deg, v=[%.1f,%.1f]deg. "
+            "mode=%s, h=[%.1f,%.1f]deg. "
             "Esperando nube en %s",
             cfg_.rows, cfg_.cols,
             x_min_, x_max_, y_min_, y_max_,
             cfg_.z_min_m, cfg_.z_max_m,
             grid_mapping_mode_.c_str(),
             rad2deg(h_angle_min_rad_), rad2deg(h_angle_max_rad_),
-            rad2deg(v_angle_min_rad_), rad2deg(v_angle_max_rad_),
             cloud_topic_.c_str());
         last_perf_log_ = get_clock()->now();
         hold_window_start_ = last_perf_log_;
@@ -218,20 +215,18 @@ private:
 
                 int c = -1;
                 int r = -1;
+                const int r_raw =
+                    static_cast<int>((py - y_min_) / y_range * rows);
+                if (r_raw < 0 || r_raw >= rows) continue;
+                r = r_raw;
+
                 if (grid_mapping_mode_ == "angular") {
-                    // Bins angulares respecto de la camara:
-                    // h = atan2(X, Z), izquierda->derecha.
-                    // v = atan2(Y, Z), arriba->abajo porque +Y apunta abajo.
+                    // Columnas angulares respecto de la camara.
+                    // Las filas siguen siendo franjas metricas de Y.
                     const float h = std::atan2(px, pz);
-                    const float v = std::atan2(py, pz);
                     c = binIndex(h, h_angle_min_rad_, h_angle_max_rad_, cols);
-                    r = binIndex(v, v_angle_min_rad_, v_angle_max_rad_, rows);
                     if (c < 0) {
                         ++drop_x;
-                        continue;
-                    }
-                    if (r < 0) {
-                        ++drop_y;
                         continue;
                     }
                 } else {
@@ -242,10 +237,6 @@ private:
                     }
                     c = static_cast<int>((px - x_min_) / x_range * cols);
                     if (c < 0 || c >= cols) continue;
-
-                    const int r_raw =
-                        static_cast<int>((py - y_min_) / y_range * rows);
-                    if (r_raw < 0 || r_raw >= rows) continue;
                     r = (rows - 1) - r_raw;
                 }
 
@@ -413,8 +404,8 @@ private:
     std::string grid_mapping_mode_{"angular"};
     float h_angle_min_rad_{-0.7853982f};
     float h_angle_max_rad_{ 0.7853982f};
-    float v_angle_min_rad_{-0.5235988f};
-    float v_angle_max_rad_{ 0.5235988f};
+    float y_default_max_m_ = 2.20f;
+    float y_margin_m_ = 0.10f;
     bool perf_log_enabled_ = false;
     double perf_log_period_s_ = 5.0;
     int empty_grid_warn_every_ = 5;

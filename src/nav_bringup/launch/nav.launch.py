@@ -296,8 +296,6 @@ def generate_launch_description():
             'flip_rows_for_display': False,
             'h_angle_min_deg': -45.0,
             'h_angle_max_deg': 45.0,
-            'v_angle_min_deg': -30.0,
-            'v_angle_max_deg': 30.0,
         }],
     )
 
