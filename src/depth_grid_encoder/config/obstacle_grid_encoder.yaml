@@ -10,6 +10,11 @@ obstacle_grid_encoder:
     h_aperture_deg: 45.0
     h_aperture_min_deg: 15.0
     h_aperture_max_deg: 70.0
+    # Apertura fisica maxima de la camara y resolucion angular interna.
+    # El nodo acumula primero a esta resolucion y luego reduce a cols=10
+    # segun h_aperture_deg, manteniendo /perception/depth_grid en 5x10.
+    h_sensor_aperture_deg: 70.0
+    h_resolution_deg: 1.0
     y_min_m: -0.20
     y_default_max_m: 2.20
     y_margin_m: 0.10

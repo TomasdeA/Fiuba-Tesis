@@ -166,6 +166,7 @@ class DepthGridHeatmapNode(Node):
                 SetParameters,
                 service_name,
             )
+            self._aperture_pending = True
 
         self._closing = False
         if self.render_backend == 'matplotlib':
@@ -308,9 +309,36 @@ class DepthGridHeatmapNode(Node):
         req = SetParameters.Request()
         req.parameters = [param]
         if self._aperture_client.service_is_ready():
-            self._aperture_client.call_async(req)
+            future = self._aperture_client.call_async(req)
+            future.add_done_callback(self._on_aperture_response)
             self._aperture_pending = False
         else:
+            self._aperture_pending = True
+
+    def _on_aperture_response(self, future):
+        try:
+            response = future.result()
+        except Exception as exc:
+            self.get_logger().warn(
+                f'No pude actualizar h_aperture_deg en '
+                f'{self.encoder_node_name}: {exc}'
+            )
+            self._aperture_pending = True
+            return
+
+        if not response.results:
+            self.get_logger().warn(
+                f'{self.encoder_node_name}/set_parameters no devolvio resultado'
+            )
+            self._aperture_pending = True
+            return
+
+        result = response.results[0]
+        if not result.successful:
+            self.get_logger().warn(
+                f'{self.encoder_node_name} rechazo h_aperture_deg: '
+                f'{result.reason}'
+            )
             self._aperture_pending = True
 
     def _handle_aperture_event(self, event):

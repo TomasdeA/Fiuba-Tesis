@@ -10,6 +10,7 @@
 #include <limits>
 #include <string>
 #include <time.h>
+#include <vector>
 
 #include "depth_grid_encoder/depth_utils.hpp"
 
@@ -56,6 +57,10 @@ public:
             this->declare_parameter<double>("h_aperture_max_deg", 70.0));
         h_aperture_deg_ = static_cast<float>(
             this->declare_parameter<double>("h_aperture_deg", 45.0));
+        h_sensor_aperture_deg_ = static_cast<float>(
+            this->declare_parameter<double>("h_sensor_aperture_deg", 70.0));
+        h_resolution_deg_ = static_cast<float>(
+            this->declare_parameter<double>("h_resolution_deg", 1.0));
         clampAperture();
         y_min_ = static_cast<float>(
             this->declare_parameter<double>("y_min_m", -0.20));
@@ -111,13 +116,15 @@ public:
         RCLCPP_INFO(get_logger(),
             "ObstacleGridEncoder iniciado. Grid=%dx%d, X=[%.1f,%.1f], "
             "Y=[%.2f,%.2f] (guardia seguridad), Z=[%.2f,%.2f], "
-            "mode=%s, h_aperture=%.1fdeg. "
+            "mode=%s, h_aperture=%.1fdeg, h_sensor=%.1fdeg, h_res=%.1fdeg. "
             "Esperando nube en %s",
             cfg_.rows, cfg_.cols,
             x_min_, x_max_, y_min_, y_max_,
             cfg_.z_min_m, cfg_.z_max_m,
             grid_mapping_mode_.c_str(),
             h_aperture_deg_,
+            h_sensor_aperture_deg_,
+            h_resolution_deg_,
             cloud_topic_.c_str());
         last_perf_log_ = get_clock()->now();
         hold_window_start_ = last_perf_log_;
@@ -170,11 +177,32 @@ private:
     void clampAperture()
     {
         if (h_aperture_min_deg_ <= 0.0f) h_aperture_min_deg_ = 1.0f;
+        if (h_sensor_aperture_deg_ < h_aperture_min_deg_) {
+            h_sensor_aperture_deg_ = h_aperture_min_deg_;
+        }
+        if (h_aperture_max_deg_ > h_sensor_aperture_deg_) {
+            h_aperture_max_deg_ = h_sensor_aperture_deg_;
+        }
         if (h_aperture_max_deg_ < h_aperture_min_deg_) {
             h_aperture_max_deg_ = h_aperture_min_deg_;
         }
+        if (h_resolution_deg_ <= 0.0f) h_resolution_deg_ = 1.0f;
         h_aperture_deg_ =
             std::clamp(h_aperture_deg_, h_aperture_min_deg_, h_aperture_max_deg_);
+    }
+
+    static void accumulateCell(
+        int idx,
+        float dist,
+        std::vector<float>& z_min,
+        std::vector<float>& z_max,
+        std::vector<double>& z_sum,
+        std::vector<int>& z_cnt)
+    {
+        if (dist < z_min[idx]) z_min[idx] = dist;
+        if (dist > z_max[idx]) z_max[idx] = dist;
+        z_sum[idx] += dist;
+        ++z_cnt[idx];
     }
 
     rcl_interfaces::msg::SetParametersResult onSetParameters(
@@ -188,7 +216,17 @@ private:
                 continue;
             }
 
-            const double value = param.as_double();
+            double value = 0.0;
+            if (param.get_type() == rclcpp::ParameterType::PARAMETER_DOUBLE) {
+                value = param.as_double();
+            } else if (param.get_type() == rclcpp::ParameterType::PARAMETER_INTEGER) {
+                value = static_cast<double>(param.as_int());
+            } else {
+                result.successful = false;
+                result.reason = "h_aperture_deg debe ser numerico";
+                return result;
+            }
+
             if (!std::isfinite(value) ||
                 value < h_aperture_min_deg_ ||
                 value > h_aperture_max_deg_) {
@@ -217,15 +255,36 @@ private:
         const int rows = cfg_.rows;
         const int cols = cfg_.cols;
         const int n    = rows * cols;
+        const bool angular_mode = (grid_mapping_mode_ == "angular");
+        const int high_cols = angular_mode
+            ? std::max(cols, static_cast<int>(
+                  std::ceil((2.0f * h_sensor_aperture_deg_) / h_resolution_deg_)))
+            : cols;
+        const int high_n = rows * high_cols;
 
-        // Acumuladores por celda
+        // Acumuladores de salida 5x10.
         std::vector<float>  z_min(n, std::numeric_limits<float>::infinity());
         std::vector<float>  z_max(n, -std::numeric_limits<float>::infinity());
         std::vector<double> z_sum(n, 0.0);
         std::vector<int>    z_cnt(n, 0);
 
+        // En modo angular primero acumulamos a mayor resolucion horizontal,
+        // luego reducimos a las 10 columnas publicadas segun h_aperture_deg_.
+        std::vector<float> high_z_min;
+        std::vector<float> high_z_max;
+        std::vector<double> high_z_sum;
+        std::vector<int> high_z_cnt;
+        if (angular_mode) {
+            high_z_min.assign(high_n, std::numeric_limits<float>::infinity());
+            high_z_max.assign(high_n, -std::numeric_limits<float>::infinity());
+            high_z_sum.assign(high_n, 0.0);
+            high_z_cnt.assign(high_n, 0);
+        }
+
         const float x_range = x_max_ - x_min_;
         const float y_range = y_max_ - y_min_;
+        const float sensor_h_min_rad = deg2rad(-h_sensor_aperture_deg_);
+        const float sensor_h_max_rad = deg2rad( h_sensor_aperture_deg_);
         const float h_min_rad = deg2rad(-h_aperture_deg_);
         const float h_max_rad = deg2rad( h_aperture_deg_);
         const uint64_t points_in = static_cast<uint64_t>(msg->width) *
@@ -271,15 +330,27 @@ private:
                 if (r_raw < 0 || r_raw >= rows) continue;
                 r = r_raw;
 
-                if (grid_mapping_mode_ == "angular") {
-                    // Columnas angulares respecto de la camara.
+                if (angular_mode) {
+                    // Columnas angulares high-res respecto de la camara.
                     // Las filas siguen siendo franjas metricas de Y.
                     const float h = std::atan2(px, pz);
-                    c = binIndex(h, h_min_rad, h_max_rad, cols);
-                    if (c < 0) {
+                    const int high_c = binIndex(
+                        h,
+                        sensor_h_min_rad,
+                        sensor_h_max_rad,
+                        high_cols);
+                    if (high_c < 0) {
                         ++drop_x;
                         continue;
                     }
+                    const float dist = std::sqrt(px * px + pz * pz);
+                    accumulateCell(
+                        r * high_cols + high_c,
+                        dist,
+                        high_z_min,
+                        high_z_max,
+                        high_z_sum,
+                        high_z_cnt);
                 } else {
                     // Modo historico: franjas metricas X/Y.
                     if (px < x_min_ || px >= x_max_) {
@@ -289,21 +360,44 @@ private:
                     c = static_cast<int>((px - x_min_) / x_range * cols);
                     if (c < 0 || c >= cols) continue;
                     r = (rows - 1) - r_raw;
+                    const float dist = std::sqrt(px * px + pz * pz);
+                    accumulateCell(
+                        r * cols + c,
+                        dist,
+                        z_min,
+                        z_max,
+                        z_sum,
+                        z_cnt);
                 }
-
-                const int idx = r * cols + c;
-                // Distancia radial en plano XZ: distancia real de colisión al cuerpo
-                const float dist = std::sqrt(px * px + pz * pz);
-                if (dist < z_min[idx]) z_min[idx] = dist;
-                if (dist > z_max[idx]) z_max[idx] = dist;
-                z_sum[idx] += dist;
-                ++z_cnt[idx];
                 ++kept;
             }
         } catch (const std::runtime_error & e) {
             RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
                 "Error al iterar PointCloud2: %s", e.what());
             return;
+        }
+
+        if (angular_mode) {
+            const float high_step =
+                (sensor_h_max_rad - sensor_h_min_rad) /
+                static_cast<float>(high_cols);
+            for (int r = 0; r < rows; ++r) {
+                for (int hc = 0; hc < high_cols; ++hc) {
+                    const int high_idx = r * high_cols + hc;
+                    if (high_z_cnt[high_idx] <= 0) continue;
+
+                    const float h_center =
+                        sensor_h_min_rad + (static_cast<float>(hc) + 0.5f) * high_step;
+                    const int c = binIndex(h_center, h_min_rad, h_max_rad, cols);
+                    if (c < 0) continue;
+
+                    const int idx = r * cols + c;
+                    z_min[idx] = std::min(z_min[idx], high_z_min[high_idx]);
+                    z_max[idx] = std::max(z_max[idx], high_z_max[high_idx]);
+                    z_sum[idx] += high_z_sum[high_idx];
+                    z_cnt[idx] += high_z_cnt[high_idx];
+                }
+            }
         }
 
         // Construir mensaje de salida
@@ -456,6 +550,8 @@ private:
     float h_aperture_deg_{45.0f};
     float h_aperture_min_deg_{15.0f};
     float h_aperture_max_deg_{70.0f};
+    float h_sensor_aperture_deg_{70.0f};
+    float h_resolution_deg_{1.0f};
     float y_default_max_m_ = 2.20f;
     float y_margin_m_ = 0.10f;
     bool perf_log_enabled_ = false;
