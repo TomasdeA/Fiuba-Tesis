@@ -31,7 +31,7 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
     apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-rqt ros-humble-rqt-image-view \
     libopencv-dev libgtk-3-0 libgl1-mesa-glx \
-    python3-matplotlib \
+    python3-matplotlib python3-pygame \
     && rm -rf /var/lib/apt/lists/* ; \
     fi
 # === SOLO Raspi (arm64): build librealsense en /usr/local ===

@@ -3,6 +3,7 @@ from launch.actions import DeclareLaunchArgument, ExecuteProcess
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -11,6 +12,7 @@ def generate_launch_description():
     use_signal_monitor = LaunchConfiguration('use_signal_monitor')
     use_rviz = LaunchConfiguration('use_rviz')
     use_odometry_path = LaunchConfiguration('use_odometry_path')
+    flip_rows_for_display = LaunchConfiguration('flip_rows_for_display')
 
     nav_rviz = PathJoinSubstitution([
         FindPackageShare('output_viewer'),
@@ -24,6 +26,12 @@ def generate_launch_description():
         name='depth_grid_heatmap',
         output='screen',
         condition=IfCondition(use_heatmap),
+        parameters=[{
+            'flip_rows_for_display': ParameterValue(
+                flip_rows_for_display,
+                value_type=bool,
+            ),
+        }],
     )
 
     signal_monitor = Node(
@@ -68,6 +76,11 @@ def generate_launch_description():
             'use_odometry_path',
             default_value='false',
             description='Launch odometry path diagnostic node',
+        ),
+        DeclareLaunchArgument(
+            'flip_rows_for_display',
+            default_value='false',
+            description='Flip heatmap rows to match filtered obstacle grid',
         ),
         heatmap,
         signal_monitor,

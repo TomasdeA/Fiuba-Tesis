@@ -292,6 +292,12 @@ def generate_launch_description():
         name='depth_grid_heatmap',
         output='screen',
         condition=IfCondition(use_viz),
+        parameters=[{
+            'flip_rows_for_display': ParameterValue(
+                PythonExpression(["'", pipeline_mode, "' == 'filtered'"]),
+                value_type=bool,
+            ),
+        }],
     )
 
     signal_monitor = Node(
