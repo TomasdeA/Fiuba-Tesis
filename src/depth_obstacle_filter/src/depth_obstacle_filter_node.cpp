@@ -125,18 +125,6 @@ class DepthObstacleFilterNode : public rclcpp::Node {
         declare_parameter<int>("height_min_ground_inliers", 50);
     height_max_ground_tilt_deg_ = static_cast<float>(
         declare_parameter<double>("height_max_ground_tilt_deg", 8.0));
-    prune_obstacle_cloud_for_grid_ =
-        declare_parameter<bool>("prune_obstacle_cloud_for_grid", true);
-    obstacle_cloud_x_min_m_ = static_cast<float>(
-        declare_parameter<double>("obstacle_cloud_x_min_m", -1.0));
-    obstacle_cloud_x_max_m_ = static_cast<float>(
-        declare_parameter<double>("obstacle_cloud_x_max_m", 1.0));
-    obstacle_cloud_y_min_m_ = static_cast<float>(
-        declare_parameter<double>("obstacle_cloud_y_min_m", -0.20));
-    obstacle_cloud_y_default_max_m_ = static_cast<float>(
-        declare_parameter<double>("obstacle_cloud_y_default_max_m", 2.20));
-    obstacle_cloud_y_margin_m_ = static_cast<float>(
-        declare_parameter<double>("obstacle_cloud_y_margin_m", 0.10));
     async_obstacle_cloud_publish_ =
         declare_parameter<bool>("async_obstacle_cloud_publish", true);
 
@@ -568,14 +556,8 @@ class DepthObstacleFilterNode : public rclcpp::Node {
 
       if (has_obstacle_subs) {
         if (perf_log_enabled_) clock_gettime(CLOCK_MONOTONIC, &t_stage);
-        if (prune_obstacle_cloud_for_grid_) {
-          const auto filtered_indices = filterObstacleIndicesForGrid(
-              ge_cloud, ground_estimator_->obstacleIndices());
-          publishObstacleCloud(aligned_hdr, ge_cloud, filtered_indices);
-        } else {
-          publishObstacleCloud(aligned_hdr, ge_cloud,
-                               ground_estimator_->obstacleIndices());
-        }
+        publishObstacleCloud(aligned_hdr, ge_cloud,
+                             ground_estimator_->obstacleIndices());
         if (perf_log_enabled_) t_obstacle_publish_ms = elapsedMs(t_stage);
       }
 
@@ -862,26 +844,6 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     }
   }
 
-  std::vector<int> filterObstacleIndicesForGrid(
-      const std::vector<depth_obstacle_filter::GroundEstimator::Point3D>& cloud,
-      const std::vector<int>& indices) const
-  {
-    std::vector<int> filtered;
-    filtered.reserve(indices.size());
-    const float y_max = height_filter_initialized_
-        ? filtered_camera_height_m_ + obstacle_cloud_y_margin_m_
-        : obstacle_cloud_y_default_max_m_;
-
-    for (const int idx : indices) {
-      const auto& p = cloud[idx];
-      if (p.z < range_min_m_ || p.z > range_max_m_) continue;
-      if (p.x < obstacle_cloud_x_min_m_ || p.x >= obstacle_cloud_x_max_m_) continue;
-      if (p.y < obstacle_cloud_y_min_m_ || p.y >= y_max) continue;
-      filtered.push_back(idx);
-    }
-    return filtered;
-  }
-
   // ── Acumulador de performance ─────────────────────────────────────────────
   struct PerfAccum {
     int    frames     = 0;
@@ -996,13 +958,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
   float height_max_ground_tilt_deg_ = 8.0f;
   float height_min_valid_m_ = 0.5f;
   float height_max_valid_m_ = 2.5f;
-  bool prune_obstacle_cloud_for_grid_ = true;
   bool async_obstacle_cloud_publish_ = true;
-  float obstacle_cloud_x_min_m_ = -1.0f;
-  float obstacle_cloud_x_max_m_ = 1.0f;
-  float obstacle_cloud_y_min_m_ = -0.20f;
-  float obstacle_cloud_y_default_max_m_ = 2.20f;
-  float obstacle_cloud_y_margin_m_ = 0.10f;
   std::thread obstacle_publish_thread_;
   std::mutex obstacle_publish_mutex_;
   std::condition_variable obstacle_publish_cv_;

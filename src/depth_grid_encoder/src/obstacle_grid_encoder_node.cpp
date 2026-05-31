@@ -7,12 +7,15 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <string>
 #include <time.h>
 
 #include "depth_grid_encoder/depth_utils.hpp"
 
 using std::placeholders::_1;
 using namespace std::chrono_literals;
+
+constexpr float kPi = 3.14159265358979323846f;
 
 // Proyecta una nube de puntos de obstáculos (PointCloud2 en gravity_aligned_frame)
 // sobre una grilla 2D XY de rows×cols celdas.
@@ -44,6 +47,22 @@ public:
 
         x_min_ = static_cast<float>(this->declare_parameter<double>("x_min_m", -3.0));
         x_max_ = static_cast<float>(this->declare_parameter<double>("x_max_m",  3.0));
+        grid_mapping_mode_ = this->declare_parameter<std::string>(
+            "grid_mapping_mode", "angular");
+        h_angle_min_rad_ = deg2rad(static_cast<float>(
+            this->declare_parameter<double>("h_angle_min_deg", -45.0)));
+        h_angle_max_rad_ = deg2rad(static_cast<float>(
+            this->declare_parameter<double>("h_angle_max_deg", 45.0)));
+        v_angle_min_rad_ = deg2rad(static_cast<float>(
+            this->declare_parameter<double>("v_angle_min_deg", -30.0)));
+        v_angle_max_rad_ = deg2rad(static_cast<float>(
+            this->declare_parameter<double>("v_angle_max_deg", 30.0)));
+        if (grid_mapping_mode_ != "angular" && grid_mapping_mode_ != "metric") {
+            RCLCPP_WARN(get_logger(),
+                "grid_mapping_mode='%s' invalido; usando angular",
+                grid_mapping_mode_.c_str());
+            grid_mapping_mode_ = "angular";
+        }
         perf_log_enabled_ = this->declare_parameter<bool>("perf_log_enabled", false);
         perf_log_period_s_ = this->declare_parameter<double>("perf_log_period_s", 5.0);
         empty_grid_warn_every_ = this->declare_parameter<int>("empty_grid_warn_every", 5);
@@ -85,10 +104,15 @@ public:
 
         RCLCPP_INFO(get_logger(),
             "ObstacleGridEncoder iniciado. Grid=%dx%d, X=[%.1f,%.1f], "
-            "Y=[%.2f,%.2f] (guardia seguridad), Z=[%.2f,%.2f]. Esperando nube en %s",
+            "Y=[%.2f,%.2f] (guardia seguridad), Z=[%.2f,%.2f], "
+            "mode=%s, h=[%.1f,%.1f]deg, v=[%.1f,%.1f]deg. "
+            "Esperando nube en %s",
             cfg_.rows, cfg_.cols,
             x_min_, x_max_, y_min_, y_max_,
             cfg_.z_min_m, cfg_.z_max_m,
+            grid_mapping_mode_.c_str(),
+            rad2deg(h_angle_min_rad_), rad2deg(h_angle_max_rad_),
+            rad2deg(v_angle_min_rad_), rad2deg(v_angle_max_rad_),
             cloud_topic_.c_str());
         last_perf_log_ = get_clock()->now();
         hold_window_start_ = last_perf_log_;
@@ -118,6 +142,24 @@ private:
         clock_gettime(CLOCK_MONOTONIC, &now);
         return (now.tv_sec - start.tv_sec) * 1000.0 +
                (now.tv_nsec - start.tv_nsec) / 1e6;
+    }
+
+    static float deg2rad(float deg)
+    {
+        return deg * kPi / 180.0f;
+    }
+
+    static float rad2deg(float rad)
+    {
+        return rad * 180.0f / kPi;
+    }
+
+    static int binIndex(float value, float min_value, float max_value, int bins)
+    {
+        const float range = max_value - min_value;
+        if (range <= 0.0f) return -1;
+        const int idx = static_cast<int>((value - min_value) / range * bins);
+        return (idx >= 0 && idx < bins) ? idx : -1;
     }
 
     void onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg)
@@ -169,22 +211,43 @@ private:
                     continue;
                 }
 
-                // Mapear X →  columna
-                if (px < x_min_ || px >= x_max_) {
-                    ++drop_x;
-                    continue;
-                }
-                const int c = static_cast<int>((px - x_min_) / x_range * cols);
-                if (c < 0 || c >= cols) continue;
-
-                // Mapear Y → fila (invertido: Y crece hacia abajo, fila 0 = suelo/y_max)
                 if (py < y_min_ || py >= y_max_) {
                     ++drop_y;
                     continue;
                 }
-                const int r_raw = static_cast<int>((py - y_min_) / y_range * rows);
-                if (r_raw < 0 || r_raw >= rows) continue;
-                const int r = (rows - 1) - r_raw;
+
+                int c = -1;
+                int r = -1;
+                if (grid_mapping_mode_ == "angular") {
+                    // Bins angulares respecto de la camara:
+                    // h = atan2(X, Z), izquierda->derecha.
+                    // v = atan2(Y, Z), arriba->abajo porque +Y apunta abajo.
+                    const float h = std::atan2(px, pz);
+                    const float v = std::atan2(py, pz);
+                    c = binIndex(h, h_angle_min_rad_, h_angle_max_rad_, cols);
+                    r = binIndex(v, v_angle_min_rad_, v_angle_max_rad_, rows);
+                    if (c < 0) {
+                        ++drop_x;
+                        continue;
+                    }
+                    if (r < 0) {
+                        ++drop_y;
+                        continue;
+                    }
+                } else {
+                    // Modo historico: franjas metricas X/Y.
+                    if (px < x_min_ || px >= x_max_) {
+                        ++drop_x;
+                        continue;
+                    }
+                    c = static_cast<int>((px - x_min_) / x_range * cols);
+                    if (c < 0 || c >= cols) continue;
+
+                    const int r_raw =
+                        static_cast<int>((py - y_min_) / y_range * rows);
+                    if (r_raw < 0 || r_raw >= rows) continue;
+                    r = (rows - 1) - r_raw;
+                }
 
                 const int idx = r * cols + c;
                 // Distancia radial en plano XZ: distancia real de colisión al cuerpo
@@ -347,6 +410,11 @@ private:
     std::string cloud_topic_;
     tesis_nav::GridConfig cfg_;
     float x_min_, x_max_, y_min_, y_max_;
+    std::string grid_mapping_mode_{"angular"};
+    float h_angle_min_rad_{-0.7853982f};
+    float h_angle_max_rad_{ 0.7853982f};
+    float v_angle_min_rad_{-0.5235988f};
+    float v_angle_max_rad_{ 0.5235988f};
     bool perf_log_enabled_ = false;
     double perf_log_period_s_ = 5.0;
     int empty_grid_warn_every_ = 5;

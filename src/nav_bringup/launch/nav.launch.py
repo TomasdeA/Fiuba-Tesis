@@ -293,10 +293,11 @@ def generate_launch_description():
         output='screen',
         condition=IfCondition(use_viz),
         parameters=[{
-            'flip_rows_for_display': ParameterValue(
-                PythonExpression(["'", pipeline_mode, "' == 'filtered'"]),
-                value_type=bool,
-            ),
+            'flip_rows_for_display': False,
+            'h_angle_min_deg': -45.0,
+            'h_angle_max_deg': 45.0,
+            'v_angle_min_deg': -30.0,
+            'v_angle_max_deg': 30.0,
         }],
     )
 

@@ -3,7 +3,15 @@ obstacle_grid_encoder:
     cloud_topic: "/depth_obstacle_filter/obstacle_cloud"
     rows: 5
     cols: 10
-    # Guardia de seguridad en X (metros) — descarta puntos espurios fuera del rango
+    # Modo angular: cada celda es un sector angular relativo a la camara.
+    # h = atan2(X, Z), v = atan2(Y, Z). +Y apunta hacia abajo.
+    # Para volver al particionado historico por franjas metricas X/Y: "metric".
+    grid_mapping_mode: "angular"
+    h_angle_min_deg: -45.0
+    h_angle_max_deg:  45.0
+    v_angle_min_deg: -30.0
+    v_angle_max_deg:  30.0
+    # Guardia de seguridad en X (metros), usada por grid_mapping_mode="metric"
     x_min_m: -1.0
     x_max_m:  1.0
     # Y fijo en el nodo: [-0.20, 2.20] m (el obstacle_cloud ya viene sin suelo ni techo)

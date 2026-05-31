@@ -2,6 +2,8 @@
 
 from custom_interfaces.msg import DepthGrid
 
+import math
+
 import numpy as np
 
 import rclpy
@@ -14,6 +16,7 @@ GRID = (215, 215, 215)
 INVALID_BG = (238, 238, 238)
 INVALID_FG = (90, 90, 90)
 pygame = None
+
 
 def extract_distance_and_count(msg: DepthGrid):
     rows = int(msg.rows)
@@ -86,6 +89,11 @@ class DepthGridHeatmapNode(Node):
         self.declare_parameter('refresh_hz', 20.0)
         self.declare_parameter('render_backend', 'pygame')
         self.declare_parameter('flip_rows_for_display', False)
+        self.declare_parameter('pygame_view_mode', 'curved')
+        self.declare_parameter('h_angle_min_deg', -45.0)
+        self.declare_parameter('h_angle_max_deg', 45.0)
+        self.declare_parameter('v_angle_min_deg', -30.0)
+        self.declare_parameter('v_angle_max_deg', 30.0)
 
         self.topic = str(self.get_parameter('topic').value)
         self.z_min = float(self.get_parameter('z_min').value)
@@ -95,6 +103,27 @@ class DepthGridHeatmapNode(Node):
         self.refresh_hz = float(self.get_parameter('refresh_hz').value)
         self.flip_rows_for_display = bool(
             self.get_parameter('flip_rows_for_display').value
+        )
+        self.pygame_view_mode = str(
+            self.get_parameter('pygame_view_mode').value
+        ).lower()
+        if self.pygame_view_mode not in ('curved', 'grid'):
+            self.get_logger().warn(
+                f'pygame_view_mode="{self.pygame_view_mode}" invalido; '
+                'usando curved'
+            )
+            self.pygame_view_mode = 'curved'
+        self.h_angle_min_deg = float(
+            self.get_parameter('h_angle_min_deg').value
+        )
+        self.h_angle_max_deg = float(
+            self.get_parameter('h_angle_max_deg').value
+        )
+        self.v_angle_min_deg = float(
+            self.get_parameter('v_angle_min_deg').value
+        )
+        self.v_angle_max_deg = float(
+            self.get_parameter('v_angle_max_deg').value
         )
         self.render_backend = str(
             self.get_parameter('render_backend').value
@@ -128,7 +157,8 @@ class DepthGridHeatmapNode(Node):
             f'Escuchando {self.topic} | z_min={self.z_min}m '
             f'z_max={self.z_max}m | refresh={self.refresh_hz}Hz '
             f'| backend={self.render_backend} '
-            f'| flip_rows={self.flip_rows_for_display}'
+            f'| flip_rows={self.flip_rows_for_display} '
+            f'| pygame_view={self.pygame_view_mode}'
         )
 
     def _setup_matplotlib(self):
@@ -303,7 +333,167 @@ class DepthGridHeatmapNode(Node):
         )
         return plot_rect, cbar_rect
 
+    def _angle_edges(self, min_deg: float, max_deg: float, count: int):
+        return np.deg2rad(np.linspace(min_deg, max_deg, count + 1))
+
+    def _project_curved(self, rect, h_angle: float, v_angle: float):
+        h_min = math.radians(self.h_angle_min_deg)
+        h_max = math.radians(self.h_angle_max_deg)
+        v_min = math.radians(self.v_angle_min_deg)
+        v_max = math.radians(self.v_angle_max_deg)
+
+        max_abs_h = max(abs(h_min), abs(h_max), 1e-3)
+        x_norm = math.sin(h_angle) / math.sin(max_abs_h)
+        x = rect.centerx + x_norm * rect.width * 0.5
+
+        tan_min = math.tan(v_min)
+        tan_max = math.tan(v_max)
+        tan_range = max(tan_max - tan_min, 1e-3)
+        y_norm = (math.tan(v_angle) - tan_min) / tan_range
+
+        curve_norm = (1.0 - math.cos(h_angle)) / max(
+            1.0 - math.cos(max_abs_h),
+            1e-3,
+        )
+        y = rect.top + y_norm * rect.height + curve_norm * 34.0
+        return int(round(x)), int(round(y))
+
+    def _draw_heatmap_curved(self, m: np.ndarray, cnt: np.ndarray):
+        rows, cols = m.shape
+        self.screen.fill(BG)
+        self._draw_text(
+            f'Heatmap angular: {self.topic}',
+            (24, 14),
+            self.font,
+            FG,
+        )
+
+        plot_rect, cbar_rect = self._layout(rows, cols)
+        plot_rect = plot_rect.inflate(-8, -42)
+        plot_rect.top += 14
+
+        rgb = intensity_to_rgb(m)
+        h_edges = self._angle_edges(
+            self.h_angle_min_deg,
+            self.h_angle_max_deg,
+            cols,
+        )
+        v_edges = self._angle_edges(
+            self.v_angle_min_deg,
+            self.v_angle_max_deg,
+            rows,
+        )
+
+        for r in range(rows):
+            view_r = display_row(rows, r, self.flip_rows_for_display)
+            for c in range(cols):
+                color = INVALID_BG if cnt[r, c] <= 0 else tuple(rgb[r, c])
+                points = [
+                    self._project_curved(
+                        plot_rect,
+                        h_edges[c],
+                        v_edges[view_r],
+                    ),
+                    self._project_curved(
+                        plot_rect,
+                        h_edges[c + 1],
+                        v_edges[view_r],
+                    ),
+                    self._project_curved(
+                        plot_rect,
+                        h_edges[c + 1],
+                        v_edges[view_r + 1],
+                    ),
+                    self._project_curved(
+                        plot_rect,
+                        h_edges[c],
+                        v_edges[view_r + 1],
+                    ),
+                ]
+                pygame.draw.polygon(self.screen, color, points)
+                pygame.draw.lines(self.screen, GRID, True, points, 1)
+
+                if self.show_values and cnt[r, c] > 0:
+                    v = m[r, c]
+                    txt = (
+                        self.invalid_text
+                        if not np.isfinite(v)
+                        else f'{int(round(v))}'
+                    )
+                    cx = sum(p[0] for p in points) / 4.0
+                    cy = sum(p[1] for p in points) / 4.0
+                    self._draw_text(
+                        txt,
+                        (cx, cy),
+                        self.value_font,
+                        FG,
+                        center=True,
+                    )
+                elif self.show_values:
+                    cx = sum(p[0] for p in points) / 4.0
+                    cy = sum(p[1] for p in points) / 4.0
+                    self._draw_text(
+                        self.invalid_text,
+                        (cx, cy),
+                        self.value_font,
+                        INVALID_FG,
+                        center=True,
+                    )
+
+        for c in range(cols + 1):
+            angle_deg = self.h_angle_min_deg + (
+                self.h_angle_max_deg - self.h_angle_min_deg
+            ) * c / cols
+            if c in (0, cols // 2, cols):
+                p = self._project_curved(plot_rect, h_edges[c], v_edges[-1])
+                self._draw_text(
+                    f'{angle_deg:.0f}°',
+                    (p[0], p[1] + 18),
+                    self.small_font,
+                    FG,
+                    center=True,
+                )
+
+        gradient = np.linspace(
+            100.0,
+            0.0,
+            max(cbar_rect.height, 1),
+            dtype=np.float32,
+        )[:, None]
+        gradient_rgb = intensity_to_rgb(gradient)
+        gradient_rgb = np.repeat(gradient_rgb, cbar_rect.width, axis=1)
+        cbar_surf = pygame.surfarray.make_surface(
+            np.transpose(gradient_rgb, (1, 0, 2))
+        )
+        self.screen.blit(cbar_surf, cbar_rect)
+        pygame.draw.rect(self.screen, FG, cbar_rect, 1)
+        self._draw_text(
+            '100',
+            (cbar_rect.right + 8, cbar_rect.top - 2),
+            self.small_font,
+            FG,
+        )
+        self._draw_text(
+            '50',
+            (cbar_rect.right + 8, cbar_rect.centery - 8),
+            self.small_font,
+            FG,
+        )
+        self._draw_text(
+            '0',
+            (cbar_rect.right + 8, cbar_rect.bottom - 14),
+            self.small_font,
+            FG,
+        )
+
+        pygame.display.flip()
+        self.clock.tick(max(1.0, self.refresh_hz))
+
     def _draw_heatmap(self, m: np.ndarray, cnt: np.ndarray):
+        if self.pygame_view_mode == 'curved':
+            self._draw_heatmap_curved(m, cnt)
+            return
+
         rows, cols = m.shape
         self.screen.fill(BG)
 
