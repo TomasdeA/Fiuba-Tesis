@@ -123,6 +123,7 @@ class DepthGridHeatmapNode(Node):
         self.declare_parameter('render_backend', 'pygame')
         self.declare_parameter('flip_rows_for_display', False)
         self.declare_parameter('pygame_view_mode', 'curved')
+        self.declare_parameter('pygame_maximized', True)
         self.declare_parameter('aperture_control_enabled', True)
         self.declare_parameter(
             'aperture_command_topic',
@@ -152,6 +153,9 @@ class DepthGridHeatmapNode(Node):
                 'usando curved'
             )
             self.pygame_view_mode = 'curved'
+        self.pygame_maximized = bool(
+            self.get_parameter('pygame_maximized').value
+        )
         self.aperture_control_enabled = bool(
             self.get_parameter('aperture_control_enabled').value
         )
@@ -257,7 +261,14 @@ class DepthGridHeatmapNode(Node):
         pygame = pygame_module
         pygame_module.init()
         pygame_module.font.init()
-        self.screen = pygame.display.set_mode((900, 700), pygame.RESIZABLE)
+        if self.pygame_maximized:
+            info = pygame.display.Info()
+            self.screen = pygame.display.set_mode(
+                (info.current_w, info.current_h),
+                pygame.RESIZABLE,
+            )
+        else:
+            self.screen = pygame.display.set_mode((900, 700), pygame.RESIZABLE)
         pygame.display.set_caption(
             f'Depth Grid Tactical View: {self.topic}'
         )
@@ -663,10 +674,6 @@ class DepthGridHeatmapNode(Node):
             self._project_curved(plot_rect, h_edges[col], row_edges[view_r + 1]),
         ]
 
-    @staticmethod
-    def _dist(p0, p1):
-        return math.hypot(p1[0] - p0[0], p1[1] - p0[1])
-
     def _draw_signal_dot(self, center, radius, color, intensity):
         radius = max(3, int(radius))
         glow_radius = int(radius * (1.65 + 0.35 * intensity / 100.0))
@@ -744,6 +751,10 @@ class DepthGridHeatmapNode(Node):
             cols,
         )
         row_edges = np.linspace(0.0, 1.0, rows + 1)
+        cell_w = max(10, plot_rect.width / max(cols, 1))
+        cell_h = max(10, plot_rect.height / max(rows, 1))
+        max_radius = max(5, int(min(cell_w, cell_h) * 0.28))
+        min_radius = max(3, int(max_radius * 0.58))
 
         for r in range(rows):
             view_r = display_row(rows, r, self.flip_rows_for_display)
@@ -761,20 +772,6 @@ class DepthGridHeatmapNode(Node):
                     int(round(sum(p[0] for p in points) / 4.0)),
                     int(round(sum(p[1] for p in points) / 4.0)),
                 )
-                local_w = 0.5 * (
-                    self._dist(points[0], points[1]) +
-                    self._dist(points[3], points[2])
-                )
-                local_h = 0.5 * (
-                    self._dist(points[0], points[3]) +
-                    self._dist(points[1], points[2])
-                )
-                perspective = 0.60 + 0.40 * (view_r + 0.5) / max(1, rows)
-                max_radius = max(
-                    5,
-                    int(min(local_w, local_h) * 0.28 * perspective),
-                )
-                min_radius = max(3, int(max_radius * 0.58))
 
                 if valid:
                     v = float(np.clip(m[r, c], 0.0, 100.0))
