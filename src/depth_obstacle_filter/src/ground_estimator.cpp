@@ -625,7 +625,8 @@ GroundEstimator::Plane GroundEstimator::stage6_refine(
 //
 //  Cada punto recibe una de tres etiquetas:
 //
-//  GROUND   – dentro de la tolerancia del plano del suelo detectado.
+//  GROUND   – dentro de la tolerancia del plano del suelo detectado, o en el
+//             semiespacio por debajo de ese plano (distancia firmada negativa).
 //  CEILING  – Y < -ceiling_delta_m: está por encima de la cámara más de
 //             ceiling_delta_m. Como la cámara se monta en la cabeza,
 //             estos puntos están sobre el techo o por encima del usuario
@@ -643,8 +644,11 @@ void GroundEstimator::stage7_classify(
   ceiling_idx_.clear();
 
   for (int i = 0; i < static_cast<int>(cloud.size()); i++) {
-    // GROUND: solo si el plano es válido y el punto está dentro de la tolerancia
-    if (plane.valid && std::abs(pointPlaneDist(cloud[i], plane)) < tol) {
+    // GROUND: dentro de tolerancia o por debajo del plano de piso.
+    // Con la convención de normal (ny < 0), distancias firmadas negativas
+    // corresponden a puntos por debajo del plano (hacia +Y).
+    const float signed_dist = pointPlaneDist(cloud[i], plane);
+    if (plane.valid && (signed_dist < 0.0f || std::abs(signed_dist) < tol)) {
       labels_[i] = Label::GROUND;
       ground_idx_.push_back(i);
       continue;
