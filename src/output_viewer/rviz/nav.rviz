@@ -46,7 +46,7 @@ Visualization Manager:
 
     - Class: rviz_default_plugins/PointCloud2
       Name: GroundCloud
-      Enabled: true
+      Enabled: false
       Topic:
         Value: /depth_obstacle_filter/debug/ground_cloud
         Depth: 5
@@ -89,7 +89,7 @@ Visualization Manager:
 
     - Class: rviz_default_plugins/Map
       Name: OccupancyGrid
-      Enabled: true
+      Enabled: false
       Topic:
         Value: /local_mapper/occupancy_grid
         Depth: 10
@@ -100,7 +100,7 @@ Visualization Manager:
 
     - Class: rviz_default_plugins/Path
       Name: OdomPath
-      Enabled: true
+      Enabled: false
       Topic:
         Value: /debug/odom_path
         Depth: 5
@@ -170,7 +170,7 @@ Visualization Manager:
       Distance: 4.5
       Focal Point:
         X: 0.0
-        Y: 0.0
+        Y: 1.0
         Z: 2.0
       Yaw: 4.7144
       Pitch: -1.5698
