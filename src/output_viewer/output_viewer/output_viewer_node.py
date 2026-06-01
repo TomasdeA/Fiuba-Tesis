@@ -16,11 +16,18 @@ import rclpy
 from rclpy.node import Node
 
 
-BG = (245, 245, 245)
-FG = (25, 25, 25)
-GRID = (215, 215, 215)
-INVALID_BG = (238, 238, 238)
-INVALID_FG = (90, 90, 90)
+BG = (5, 8, 16)
+FG = (166, 220, 238)
+GRID = (34, 73, 112)
+INVALID_BG = (13, 20, 38)
+INVALID_FG = (74, 105, 126)
+PANEL_BG = (8, 13, 25)
+PANEL_EDGE = (72, 157, 210)
+PANEL_EDGE_DIM = (30, 69, 105)
+ACCENT = (108, 201, 242)
+ACCENT_SOFT = (45, 117, 176)
+HOT = (117, 238, 255)
+TEXT_DARK = (7, 20, 34)
 pygame = None
 
 
@@ -61,6 +68,26 @@ def intensity_to_rgb(m: np.ndarray) -> np.ndarray:
     red = np.array([178, 24, 43], dtype=np.float32)
 
     stops = np.stack((blue, light_blue, white, light_red, red), axis=0)
+    scaled = x * (len(stops) - 1)
+    idx = np.floor(scaled).astype(np.int32)
+    idx = np.clip(idx, 0, len(stops) - 2)
+    t = (scaled - idx)[..., None]
+
+    rgb = stops[idx] * (1.0 - t) + stops[idx + 1] * t
+    return rgb.astype(np.uint8)
+
+
+def intensity_to_neon_rgb(m: np.ndarray) -> np.ndarray:
+    """Paleta monocromatica azul/cian para la vista pygame."""
+    x = np.clip(m.astype(np.float32) / 100.0, 0.0, 1.0)
+    x = np.power(x, 0.72)
+
+    low = np.array([8, 13, 25], dtype=np.float32)
+    mid = np.array([12, 64, 119], dtype=np.float32)
+    high = np.array([22, 168, 224], dtype=np.float32)
+    peak = np.array([102, 238, 255], dtype=np.float32)
+
+    stops = np.stack((low, mid, high, peak), axis=0)
     scaled = x * (len(stops) - 1)
     idx = np.floor(scaled).astype(np.int32)
     idx = np.clip(idx, 0, len(stops) - 2)
@@ -232,12 +259,13 @@ class DepthGridHeatmapNode(Node):
         pygame_module.font.init()
         self.screen = pygame.display.set_mode((900, 700), pygame.RESIZABLE)
         pygame.display.set_caption(
-            f'Heatmap intensidades (rojo=cerca): {self.topic}'
+            f'Depth Grid Tactical View: {self.topic}'
         )
         self.clock = pygame.time.Clock()
-        self.font = pygame.font.SysFont(None, 18)
-        self.value_font = pygame.font.SysFont(None, 20)
-        self.small_font = pygame.font.SysFont(None, 16)
+        self.font = pygame.font.SysFont('dejavusans', 18, bold=True)
+        self.title_font = pygame.font.SysFont('dejavusans', 34, bold=True)
+        self.value_font = pygame.font.SysFont('dejavusans', 18, bold=True)
+        self.small_font = pygame.font.SysFont('dejavusans', 14, bold=True)
         self._draw_waiting()
 
     def _on_close(self, _evt=None):
@@ -291,7 +319,8 @@ class DepthGridHeatmapNode(Node):
 
     def _slider_rect(self):
         width, _height = self.screen.get_size()
-        return pygame.Rect(190, 46, max(220, width - 390), 10)
+        slider_w = min(440, max(260, width - 360))
+        return pygame.Rect((width - slider_w) // 2, 164, slider_w, 8)
 
     def _aperture_from_x(self, x: int) -> float:
         rect = self._slider_rect()
@@ -410,15 +439,36 @@ class DepthGridHeatmapNode(Node):
                 self._dirty = True
 
     def _draw_waiting(self):
-        self.screen.fill(BG)
+        self._draw_background()
+        width, height = self.screen.get_size()
+        self._draw_panel(
+            pygame.Rect(34, 28, width - 68, height - 56),
+            border=2,
+        )
         self._draw_text(
-            f'Heatmap intensidades (rojo=cerca): {self.topic}',
-            (24, 14),
-            self.font,
+            'DEPTH GRID',
+            (width // 2, 58),
+            self.title_font,
             FG,
+            center=True,
+            glow=True,
+        )
+        self._draw_text(
+            f'{self.topic}  |  SIGNAL INTENSITY',
+            (width // 2, 94),
+            self.small_font,
+            INVALID_FG,
+            center=True,
         )
         self._draw_aperture_slider()
-        self._draw_text('Esperando DepthGrid...', (24, 76), self.font, FG)
+        self._draw_text(
+            'WAITING FOR SIGNAL',
+            (width // 2, height // 2),
+            self.font,
+            FG,
+            center=True,
+            glow=True,
+        )
         pygame.display.flip()
 
     def _draw_text(
@@ -428,37 +478,106 @@ class DepthGridHeatmapNode(Node):
         font=None,
         color=FG,
         center=False,
+        glow=False,
+        shadow=False,
     ):
-        surf = (font or self.font).render(text, True, color)
+        font = font or self.font
+        surf = font.render(text, True, color)
         rect = surf.get_rect()
         if center:
             rect.center = pos
         else:
             rect.topleft = pos
+        if shadow:
+            shadow_surf = font.render(text, True, (0, 4, 12))
+            self.screen.blit(shadow_surf, rect.move(1, 1))
+        if glow:
+            glow_surf = font.render(text, True, ACCENT_SOFT)
+            for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                self.screen.blit(glow_surf, rect.move(dx, dy))
         self.screen.blit(surf, rect)
         return rect
+
+    def _draw_background(self):
+        width, height = self.screen.get_size()
+        for y in range(height):
+            t = y / max(1, height - 1)
+            color = (
+                int(3 + 5 * t),
+                int(7 + 9 * t),
+                int(18 + 22 * t),
+            )
+            pygame.draw.line(self.screen, color, (0, y), (width, y))
+
+        grid_step = 48
+        for x in range(0, width, grid_step):
+            pygame.draw.line(self.screen, (8, 25, 55), (x, 0), (x, height), 1)
+        for y in range(0, height, grid_step):
+            pygame.draw.line(self.screen, (8, 25, 55), (0, y), (width, y), 1)
+
+    def _draw_panel(self, rect, border=1):
+        shadow = pygame.Surface((rect.width + 28, rect.height + 28), pygame.SRCALPHA)
+        pygame.draw.rect(
+            shadow,
+            (*ACCENT_SOFT, 34),
+            shadow.get_rect().inflate(-18, -18),
+            border_radius=2,
+        )
+        self.screen.blit(shadow, (rect.left - 14, rect.top - 14))
+
+        panel = pygame.Surface(rect.size, pygame.SRCALPHA)
+        pygame.draw.rect(panel, (*PANEL_BG, 232), panel.get_rect(), border_radius=8)
+        self.screen.blit(panel, rect)
+        pygame.draw.rect(self.screen, PANEL_EDGE_DIM, rect, border, border_radius=8)
+        pygame.draw.rect(self.screen, PANEL_EDGE, rect.inflate(-7, -7), 1, border_radius=6)
+
+        length = min(62, max(22, rect.width // 8))
+        for sx in (rect.left, rect.right):
+            x0 = sx if sx == rect.left else sx - length
+            x1 = sx + length if sx == rect.left else sx
+            pygame.draw.line(self.screen, ACCENT, (x0, rect.top), (x1, rect.top), 2)
+            pygame.draw.line(self.screen, ACCENT, (x0, rect.bottom), (x1, rect.bottom), 2)
+        for sy in (rect.top, rect.bottom):
+            y0 = sy if sy == rect.top else sy - length
+            y1 = sy + length if sy == rect.top else sy
+            pygame.draw.line(self.screen, ACCENT, (rect.left, y0), (rect.left, y1), 2)
+            pygame.draw.line(self.screen, ACCENT, (rect.right, y0), (rect.right, y1), 2)
 
     def _draw_aperture_slider(self):
         if not self.aperture_control_enabled:
             return
 
         rect = self._slider_rect()
-        label = f'apertura horizontal ±{self.h_aperture_deg:.0f}°'
-        self._draw_text(label, (24, 38), self.font, FG)
+        label = f'APERTURE ±{self.h_aperture_deg:.0f}°'
+        self._draw_text(
+            label,
+            (rect.centerx, rect.top - 30),
+            self.font,
+            FG,
+            center=True,
+        )
 
         pygame.draw.line(
             self.screen,
-            (170, 170, 170),
+            PANEL_EDGE_DIM,
             rect.midleft,
             rect.midright,
-            4,
+            3,
         )
         t = (
             (self.h_aperture_deg - self.h_aperture_min_deg) /
             max(1e-3, self.h_aperture_max_deg - self.h_aperture_min_deg)
         )
         knob_x = rect.left + int(round(t * rect.width))
-        pygame.draw.circle(self.screen, (35, 35, 35), (knob_x, rect.centery), 8)
+        pygame.draw.line(
+            self.screen,
+            ACCENT,
+            rect.midleft,
+            (knob_x, rect.centery),
+            3,
+        )
+        pygame.draw.circle(self.screen, ACCENT_SOFT, (knob_x, rect.centery), 10)
+        pygame.draw.circle(self.screen, HOT, (knob_x, rect.centery), 6)
 
         self._draw_text(
             f'{self.h_aperture_min_deg:.0f}°',
@@ -496,8 +615,8 @@ class DepthGridHeatmapNode(Node):
 
     def _layout(self, rows: int, cols: int):
         width, height = self.screen.get_size()
-        margin = 24
-        title_h = 72
+        margin = 34
+        title_h = 152
         tick_left = 42
         tick_bottom = 32
         cbar_w = 28
@@ -525,36 +644,100 @@ class DepthGridHeatmapNode(Node):
         return np.deg2rad(np.linspace(min_deg, max_deg, count + 1))
 
     def _project_curved(self, rect, h_angle: float, row_pos: float):
-        h_min = math.radians(-self.h_aperture_deg)
-        h_max = math.radians(self.h_aperture_deg)
-
-        max_abs_h = max(abs(h_min), abs(h_max), 1e-3)
-        x_norm = math.sin(h_angle) / math.sin(max_abs_h)
-        x = rect.centerx + x_norm * rect.width * 0.5
+        max_abs_h = math.radians(max(self.h_aperture_deg, 1.0))
+        x_norm = math.sin(h_angle) / max(math.sin(max_abs_h), 1e-3)
+        x = rect.centerx + x_norm * rect.width * 0.50
 
         curve_norm = (1.0 - math.cos(h_angle)) / max(
             1.0 - math.cos(max_abs_h),
             1e-3,
         )
-        y = rect.top + row_pos * rect.height + curve_norm * 34.0
+        y = rect.top + row_pos * rect.height + curve_norm * 38.0
         return int(round(x)), int(round(y))
+
+    def _cell_points_curved(self, plot_rect, h_edges, row_edges, view_r, col):
+        return [
+            self._project_curved(plot_rect, h_edges[col], row_edges[view_r]),
+            self._project_curved(plot_rect, h_edges[col + 1], row_edges[view_r]),
+            self._project_curved(plot_rect, h_edges[col + 1], row_edges[view_r + 1]),
+            self._project_curved(plot_rect, h_edges[col], row_edges[view_r + 1]),
+        ]
+
+    @staticmethod
+    def _dist(p0, p1):
+        return math.hypot(p1[0] - p0[0], p1[1] - p0[1])
+
+    def _draw_signal_dot(self, center, radius, color, intensity):
+        radius = max(3, int(radius))
+        glow_radius = int(radius * (1.65 + 0.35 * intensity / 100.0))
+        glow_size = glow_radius * 2 + 8
+        glow = pygame.Surface((glow_size, glow_size), pygame.SRCALPHA)
+        glow_center = (glow_size // 2, glow_size // 2)
+
+        pygame.draw.circle(
+            glow,
+            (*color, int(12 + intensity * 0.34)),
+            glow_center,
+            glow_radius,
+        )
+        if intensity >= 55.0:
+            pygame.draw.circle(
+                glow,
+                (*HOT, int((intensity - 45.0) * 0.95)),
+                glow_center,
+                max(radius + 3, int(glow_radius * 0.52)),
+            )
+        self.screen.blit(
+            glow,
+            (center[0] - glow_center[0], center[1] - glow_center[1]),
+            special_flags=pygame.BLEND_ADD,
+        )
+
+        pygame.draw.circle(self.screen, (5, 13, 24), center, radius + 2)
+        pygame.draw.circle(self.screen, color, center, radius)
+
+        inner = (
+            min(150, color[0] + 24),
+            min(245, color[1] + 26),
+            min(255, color[2] + 28),
+        )
+        pygame.draw.circle(self.screen, inner, center, max(2, int(radius * 0.44)))
+        pygame.draw.circle(self.screen, PANEL_EDGE, center, radius, 1)
+        highlight = (
+            center[0] - max(1, int(radius * 0.22)),
+            center[1] - max(1, int(radius * 0.22)),
+        )
+        pygame.draw.circle(self.screen, HOT, highlight, max(1, radius // 7))
 
     def _draw_heatmap_curved(self, m: np.ndarray, cnt: np.ndarray):
         rows, cols = m.shape
-        self.screen.fill(BG)
+        width, height = self.screen.get_size()
+        self._draw_background()
+        main_panel = pygame.Rect(34, 28, width - 68, height - 56)
+        self._draw_panel(main_panel, border=2)
+
         self._draw_text(
-            f'Heatmap angular: {self.topic}',
-            (24, 14),
-            self.font,
+            'DEPTH GRID',
+            (width // 2, 60),
+            self.title_font,
             FG,
+            center=True,
+            glow=True,
+        )
+        self._draw_text(
+            f'{self.topic}  |  SIGNAL INTENSITY',
+            (width // 2, 96),
+            self.small_font,
+            INVALID_FG,
+            center=True,
         )
         self._draw_aperture_slider()
 
         plot_rect, cbar_rect = self._layout(rows, cols)
-        plot_rect = plot_rect.inflate(-8, -42)
-        plot_rect.top += 14
+        plot_rect = plot_rect.inflate(-24, -58)
+        plot_rect.top += 16
 
-        rgb = intensity_to_rgb(m)
+        rgb = intensity_to_neon_rgb(m)
         h_edges = self._angle_edges(
             -self.h_aperture_deg,
             self.h_aperture_deg,
@@ -565,58 +748,71 @@ class DepthGridHeatmapNode(Node):
         for r in range(rows):
             view_r = display_row(rows, r, self.flip_rows_for_display)
             for c in range(cols):
-                color = INVALID_BG if cnt[r, c] <= 0 else tuple(rgb[r, c])
-                points = [
-                    self._project_curved(
-                        plot_rect,
-                        h_edges[c],
-                        row_edges[view_r],
-                    ),
-                    self._project_curved(
-                        plot_rect,
-                        h_edges[c + 1],
-                        row_edges[view_r],
-                    ),
-                    self._project_curved(
-                        plot_rect,
-                        h_edges[c + 1],
-                        row_edges[view_r + 1],
-                    ),
-                    self._project_curved(
-                        plot_rect,
-                        h_edges[c],
-                        row_edges[view_r + 1],
-                    ),
-                ]
-                pygame.draw.polygon(self.screen, color, points)
-                pygame.draw.lines(self.screen, GRID, True, points, 1)
+                valid = cnt[r, c] > 0
+                color = INVALID_BG if not valid else tuple(rgb[r, c])
+                points = self._cell_points_curved(
+                    plot_rect,
+                    h_edges,
+                    row_edges,
+                    view_r,
+                    c,
+                )
+                center = (
+                    int(round(sum(p[0] for p in points) / 4.0)),
+                    int(round(sum(p[1] for p in points) / 4.0)),
+                )
+                local_w = 0.5 * (
+                    self._dist(points[0], points[1]) +
+                    self._dist(points[3], points[2])
+                )
+                local_h = 0.5 * (
+                    self._dist(points[0], points[3]) +
+                    self._dist(points[1], points[2])
+                )
+                perspective = 0.60 + 0.40 * (view_r + 0.5) / max(1, rows)
+                max_radius = max(
+                    5,
+                    int(min(local_w, local_h) * 0.28 * perspective),
+                )
+                min_radius = max(3, int(max_radius * 0.58))
 
-                if self.show_values and cnt[r, c] > 0:
-                    v = m[r, c]
+                if valid:
+                    v = float(np.clip(m[r, c], 0.0, 100.0))
+                    radius = int(min_radius + (v / 100.0) * (max_radius - min_radius))
+                    self._draw_signal_dot(center, radius, color, v)
+                else:
+                    radius = max(2, int(min_radius * 0.55))
+                    pygame.draw.circle(self.screen, INVALID_FG, center, radius, 1)
+
+                if self.show_values and valid:
                     txt = (
                         self.invalid_text
                         if not np.isfinite(v)
                         else f'{int(round(v))}'
                     )
-                    cx = sum(p[0] for p in points) / 4.0
-                    cy = sum(p[1] for p in points) / 4.0
+                    value_color = TEXT_DARK if v >= 56 else HOT
                     self._draw_text(
                         txt,
-                        (cx, cy),
+                        center,
                         self.value_font,
-                        FG,
+                        value_color,
                         center=True,
+                        shadow=v < 56,
                     )
                 elif self.show_values:
-                    cx = sum(p[0] for p in points) / 4.0
-                    cy = sum(p[1] for p in points) / 4.0
                     self._draw_text(
                         self.invalid_text,
-                        (cx, cy),
+                        center,
                         self.value_font,
                         INVALID_FG,
                         center=True,
                     )
+
+        near_arc = [
+            self._project_curved(plot_rect, angle, row_edges[-1])
+            for angle in np.linspace(h_edges[0], h_edges[-1], 48)
+        ]
+        pygame.draw.lines(self.screen, (42, 108, 166), False, near_arc, 1)
 
         for c in range(cols + 1):
             angle_deg = -self.h_aperture_deg + (
@@ -638,13 +834,13 @@ class DepthGridHeatmapNode(Node):
             max(cbar_rect.height, 1),
             dtype=np.float32,
         )[:, None]
-        gradient_rgb = intensity_to_rgb(gradient)
+        gradient_rgb = intensity_to_neon_rgb(gradient)
         gradient_rgb = np.repeat(gradient_rgb, cbar_rect.width, axis=1)
         cbar_surf = pygame.surfarray.make_surface(
             np.transpose(gradient_rgb, (1, 0, 2))
         )
         self.screen.blit(cbar_surf, cbar_rect)
-        pygame.draw.rect(self.screen, FG, cbar_rect, 1)
+        pygame.draw.rect(self.screen, PANEL_EDGE, cbar_rect, 1)
         self._draw_text(
             '100',
             (cbar_rect.right + 8, cbar_rect.top - 2),
@@ -673,18 +869,22 @@ class DepthGridHeatmapNode(Node):
             return
 
         rows, cols = m.shape
-        self.screen.fill(BG)
+        width, height = self.screen.get_size()
+        self._draw_background()
+        self._draw_panel(pygame.Rect(34, 28, width - 68, height - 56), border=2)
 
         self._draw_text(
-            f'Heatmap intensidades (rojo=cerca): {self.topic}',
-            (24, 14),
-            self.font,
+            'DEPTH GRID',
+            (width // 2, 60),
+            self.title_font,
             FG,
+            center=True,
+            glow=True,
         )
         self._draw_aperture_slider()
 
         plot_rect, cbar_rect = self._layout(rows, cols)
-        rgb = intensity_to_rgb(m)
+        rgb = intensity_to_neon_rgb(m)
         rgb[cnt <= 0] = INVALID_BG
         rgb = display_matrix(rgb, self.flip_rows_for_display)
 
