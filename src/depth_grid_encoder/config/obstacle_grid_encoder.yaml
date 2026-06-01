@@ -15,6 +15,7 @@ obstacle_grid_encoder:
     # segun h_aperture_deg, manteniendo /perception/depth_grid en 5x10.
     h_sensor_aperture_deg: 70.0
     h_resolution_deg: 1.0
+    aperture_command_topic: "/perception/depth_grid/aperture_deg"
     y_min_m: -0.20
     y_default_max_m: 2.20
     y_margin_m: 0.10

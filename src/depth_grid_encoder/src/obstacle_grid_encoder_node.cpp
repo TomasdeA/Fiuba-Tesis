@@ -41,6 +41,8 @@ public:
     {
         cloud_topic_ = this->declare_parameter<std::string>(
             "cloud_topic", "/depth_obstacle_filter/obstacle_cloud");
+        aperture_command_topic_ = this->declare_parameter<std::string>(
+            "aperture_command_topic", "/perception/depth_grid/aperture_deg");
 
         cfg_.rows    = static_cast<int>(this->declare_parameter<int>("rows", 5));
         cfg_.cols    = static_cast<int>(this->declare_parameter<int>("cols", 10));
@@ -99,6 +101,13 @@ public:
                 }
             });
 
+        aperture_sub_ = this->create_subscription<std_msgs::msg::Float32>(
+            aperture_command_topic_,
+            10,
+            [this](std_msgs::msg::Float32::SharedPtr msg) {
+                this->onApertureCommand(msg->data);
+            });
+
         cloud_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
             cloud_topic_, rclcpp::SensorDataQoS(),
             std::bind(&ObstacleGridEncoder::onCloud, this, _1));
@@ -117,7 +126,7 @@ public:
             "ObstacleGridEncoder iniciado. Grid=%dx%d, X=[%.1f,%.1f], "
             "Y=[%.2f,%.2f] (guardia seguridad), Z=[%.2f,%.2f], "
             "mode=%s, h_aperture=%.1fdeg, h_sensor=%.1fdeg, h_res=%.1fdeg. "
-            "Esperando nube en %s",
+            "Esperando nube en %s | control apertura en %s",
             cfg_.rows, cfg_.cols,
             x_min_, x_max_, y_min_, y_max_,
             cfg_.z_min_m, cfg_.z_max_m,
@@ -125,7 +134,8 @@ public:
             h_aperture_deg_,
             h_sensor_aperture_deg_,
             h_resolution_deg_,
-            cloud_topic_.c_str());
+            cloud_topic_.c_str(),
+            aperture_command_topic_.c_str());
         last_perf_log_ = get_clock()->now();
         hold_window_start_ = last_perf_log_;
     }
@@ -244,6 +254,32 @@ private:
         }
 
         return result;
+    }
+
+    void onApertureCommand(float requested_deg)
+    {
+        if (!std::isfinite(requested_deg)) {
+            RCLCPP_WARN(get_logger(),
+                "[apertura] comando ignorado: valor no finito");
+            return;
+        }
+
+        const float clamped = std::clamp(
+            requested_deg,
+            h_aperture_min_deg_,
+            h_aperture_max_deg_);
+        if (std::abs(clamped - h_aperture_deg_) < 0.05f) {
+            return;
+        }
+
+        h_aperture_deg_ = clamped;
+        this->set_parameter(rclcpp::Parameter(
+            "h_aperture_deg",
+            static_cast<double>(h_aperture_deg_)));
+        RCLCPP_INFO(get_logger(),
+            "[apertura] h_aperture_deg=%.1f por topico %s",
+            h_aperture_deg_,
+            aperture_command_topic_.c_str());
     }
 
     void onCloud(sensor_msgs::msg::PointCloud2::SharedPtr msg)
@@ -544,6 +580,7 @@ private:
     }
 
     std::string cloud_topic_;
+    std::string aperture_command_topic_;
     tesis_nav::GridConfig cfg_;
     float x_min_, x_max_, y_min_, y_max_;
     std::string grid_mapping_mode_{"angular"};
@@ -575,6 +612,7 @@ private:
 
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
     rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr         height_sub_;
+    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr         aperture_sub_;
     rclcpp::Publisher<custom_interfaces::msg::DepthGrid>::SharedPtr grid_pub_;
     rclcpp::TimerBase::SharedPtr heartbeat_;
     rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr

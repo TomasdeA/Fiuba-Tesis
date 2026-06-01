@@ -5,6 +5,7 @@ from rcl_interfaces.msg import Parameter
 from rcl_interfaces.msg import ParameterType
 from rcl_interfaces.msg import ParameterValue
 from rcl_interfaces.srv import SetParameters
+from std_msgs.msg import Float32
 
 import math
 import time
@@ -96,6 +97,11 @@ class DepthGridHeatmapNode(Node):
         self.declare_parameter('flip_rows_for_display', False)
         self.declare_parameter('pygame_view_mode', 'curved')
         self.declare_parameter('aperture_control_enabled', True)
+        self.declare_parameter(
+            'aperture_command_topic',
+            '/perception/depth_grid/aperture_deg',
+        )
+        self.declare_parameter('use_parameter_service_control', False)
         self.declare_parameter('encoder_node_name', '/obstacle_grid_encoder')
         self.declare_parameter('h_aperture_deg', 45.0)
         self.declare_parameter('h_aperture_min_deg', 15.0)
@@ -121,6 +127,12 @@ class DepthGridHeatmapNode(Node):
             self.pygame_view_mode = 'curved'
         self.aperture_control_enabled = bool(
             self.get_parameter('aperture_control_enabled').value
+        )
+        self.aperture_command_topic = str(
+            self.get_parameter('aperture_command_topic').value
+        )
+        self.use_parameter_service_control = bool(
+            self.get_parameter('use_parameter_service_control').value
         )
         self.encoder_node_name = str(
             self.get_parameter('encoder_node_name').value
@@ -159,14 +171,21 @@ class DepthGridHeatmapNode(Node):
         self._dragging_aperture = False
         self._last_aperture_send_s = 0.0
         self._aperture_pending = False
+        self._aperture_pub = None
         self._aperture_client = None
         if self.aperture_control_enabled:
-            service_name = f'{self.encoder_node_name}/set_parameters'
-            self._aperture_client = self.create_client(
-                SetParameters,
-                service_name,
+            self._aperture_pub = self.create_publisher(
+                Float32,
+                self.aperture_command_topic,
+                10,
             )
             self._aperture_pending = True
+            if self.use_parameter_service_control:
+                service_name = f'{self.encoder_node_name}/set_parameters'
+                self._aperture_client = self.create_client(
+                    SetParameters,
+                    service_name,
+                )
 
         self._closing = False
         if self.render_backend == 'matplotlib':
@@ -292,13 +311,19 @@ class DepthGridHeatmapNode(Node):
         self._dirty = True
 
     def _send_aperture(self, force=False):
-        if self._aperture_client is None:
-            return
-
         now = time.monotonic()
         if not force and now - self._last_aperture_send_s < 0.15:
             return
         self._last_aperture_send_s = now
+
+        if self._aperture_pub is not None:
+            msg = Float32()
+            msg.data = float(self.h_aperture_deg)
+            self._aperture_pub.publish(msg)
+
+        if self._aperture_client is None:
+            self._aperture_pending = False
+            return
 
         param = Parameter()
         param.name = 'h_aperture_deg'
