@@ -16,6 +16,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rcl_interfaces REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(custom_interfaces REQUIRED)
 
@@ -53,8 +54,23 @@ ament_target_dependencies(obstacle_grid_encoder
     std_msgs
     custom_interfaces)
 
+# ── extended_depth_grid (odometría + DepthGrid → DepthGrid con FOV extendido) ─
+add_executable(extended_depth_grid
+    src/extended_depth_grid_node.cpp
+)
+
+target_include_directories(extended_depth_grid PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+ament_target_dependencies(extended_depth_grid
+    rclcpp
+    nav_msgs
+    custom_interfaces)
+
 # Instalation
-install(TARGETS depth_to_matrix obstacle_grid_encoder
+install(TARGETS depth_to_matrix obstacle_grid_encoder extended_depth_grid
     RUNTIME DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY include/
@@ -65,5 +81,5 @@ install(DIRECTORY config launch
   OPTIONAL)
 
 ament_export_include_directories(include)
-ament_export_dependencies(rclcpp rcl_interfaces sensor_msgs std_msgs)
+ament_export_dependencies(rclcpp rcl_interfaces sensor_msgs nav_msgs std_msgs)
 ament_package()

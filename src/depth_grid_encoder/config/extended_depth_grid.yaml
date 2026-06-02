@@ -1,0 +1,33 @@
+extended_depth_grid:
+  ros__parameters:
+    input_grid_topic: "/perception/depth_grid"
+    odom_topic: "/nav_odom"
+    output_grid_topic: "/perception/extended_depth_grid"
+
+    # La cámara D435i aporta aproximadamente -70..+70 grados útiles.
+    input_fov_deg: 140.0
+    output_fov_deg: 270.0
+
+    # 5x18 equivale a 15 grados por columna en 270 grados.
+    # Para compatibilidad directa con hardware_manager, bajar cols a 10 y
+    # reconfigurar la apertura del viewer/motores.
+    output_rows: 5
+    output_cols: 18
+
+    min_valid_depth_m: 0.25
+    max_valid_depth_m: 5.0
+
+    # Memoria temporal corta: suficiente para recuperar laterales recién vistos,
+    # sin intentar construir un mapa persistente.
+    history_ttl_s: 2.0
+    max_history_points: 2500
+    lateral_angle_margin_deg: 2.0
+
+    # Compuertas conservadoras ante saltos de odometría.
+    max_odom_age_s: 0.20
+    max_odom_jump_m: 0.60
+    max_odom_jump_yaw_deg: 35.0
+    clear_on_odom_jump: true
+
+    publish_current_when_odom_missing: true
+    perf_log_enabled: false

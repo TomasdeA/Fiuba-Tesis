@@ -121,6 +121,8 @@ def generate_launch_description():
     use_bag            = LaunchConfiguration('use_bag')
     performance        = LaunchConfiguration('performance')
     monitor_signal     = LaunchConfiguration('monitor_signal')
+    use_extended_grid  = LaunchConfiguration('use_extended_grid')
+    extended_grid_cols = LaunchConfiguration('extended_grid_cols')
 
     # ── Config file paths ─────────────────────────────────
     depth_to_matrix_cfg = PathJoinSubstitution([
@@ -133,6 +135,12 @@ def generate_launch_description():
         FindPackageShare('depth_grid_encoder'),
         'config',
         'obstacle_grid_encoder.yaml',
+    ])
+
+    extended_grid_cfg = PathJoinSubstitution([
+        FindPackageShare('depth_grid_encoder'),
+        'config',
+        'extended_depth_grid.yaml',
     ])
 
     # ── Rango de distancia del sensor (fuente única de verdad) ─────────────
@@ -266,6 +274,27 @@ def generate_launch_description():
         condition=IfCondition(PythonExpression(["'", pipeline_mode, "' == 'filtered'"])),
     )
 
+    # ── Extended depth grid: DepthGrid + odometría → DepthGrid 270° ──────────
+    # Mantiene una memoria temporal corta de la grilla de profundidad y reubica
+    # mediciones previas con nav_odom para cubrir sectores laterales fuera del
+    # FOV instantáneo de la cámara.
+    extended_grid = Node(
+        package='depth_grid_encoder',
+        executable='extended_depth_grid',
+        name='extended_depth_grid',
+        parameters=[
+            extended_grid_cfg,
+            {
+                'max_valid_depth_m': _depth_max_m,
+                'output_cols': ParameterValue(extended_grid_cols, value_type=int),
+            },
+        ],
+        output='screen',
+        condition=IfCondition(PythonExpression([
+            "'", use_extended_grid, "' == 'true' and '", pipeline_mode, "' != 'none'"
+        ])),
+    )
+
     # ── Haptic grid generator ─────────────────────────────
     #haptic_grid = Node(
     #    package='haptic_grid_generator',
@@ -297,6 +326,14 @@ def generate_launch_description():
             'h_aperture_deg': 45.0,
             'h_aperture_min_deg': 15.0,
             'h_aperture_max_deg': 70.0,
+            'extended_grid_alert_enabled': ParameterValue(
+                use_extended_grid,
+                value_type=bool,
+            ),
+            'extended_grid_topic': '/perception/extended_depth_grid',
+            'extended_grid_input_fov_deg': 140.0,
+            'extended_grid_output_fov_deg': 270.0,
+            'extended_grid_near_threshold_m': 0.50,
         }],
     )
 
@@ -408,6 +445,16 @@ def generate_launch_description():
             description='Launch local_mapper (occupancy grid builder)',
         ),
         DeclareLaunchArgument(
+            'use_extended_grid',
+            default_value='false',
+            description='Launch extended_depth_grid (DepthGrid + nav_odom -> 270 deg local grid)',
+        ),
+        DeclareLaunchArgument(
+            'extended_grid_cols',
+            default_value='18',
+            description='Columnas de salida de la grilla extendida (18 ~= 15 deg/celda en 270 deg)',
+        ),
+        DeclareLaunchArgument(
             'debug',
             default_value='false',
             description='Publish non-essential debug topics (raw/aligned/ground/ceiling clouds)',
@@ -484,6 +531,7 @@ def generate_launch_description():
         local_mapper,
         depth_to_matrix,
         obstacle_grid,
+        extended_grid,
         #haptic_grid,
         hw_manager,
         viz,

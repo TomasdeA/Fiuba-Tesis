@@ -134,6 +134,14 @@ class DepthGridHeatmapNode(Node):
         self.declare_parameter('h_aperture_deg', 45.0)
         self.declare_parameter('h_aperture_min_deg', 15.0)
         self.declare_parameter('h_aperture_max_deg', 70.0)
+        self.declare_parameter('extended_grid_alert_enabled', False)
+        self.declare_parameter(
+            'extended_grid_topic',
+            '/perception/extended_depth_grid',
+        )
+        self.declare_parameter('extended_grid_input_fov_deg', 140.0)
+        self.declare_parameter('extended_grid_output_fov_deg', 270.0)
+        self.declare_parameter('extended_grid_near_threshold_m', 0.50)
 
         self.topic = str(self.get_parameter('topic').value)
         self.z_min = float(self.get_parameter('z_min').value)
@@ -177,6 +185,21 @@ class DepthGridHeatmapNode(Node):
         self.h_aperture_max_deg = float(
             self.get_parameter('h_aperture_max_deg').value
         )
+        self.extended_grid_alert_enabled = bool(
+            self.get_parameter('extended_grid_alert_enabled').value
+        )
+        self.extended_grid_topic = str(
+            self.get_parameter('extended_grid_topic').value
+        )
+        self.extended_grid_input_fov_deg = float(
+            self.get_parameter('extended_grid_input_fov_deg').value
+        )
+        self.extended_grid_output_fov_deg = float(
+            self.get_parameter('extended_grid_output_fov_deg').value
+        )
+        self.extended_grid_near_threshold_m = float(
+            self.get_parameter('extended_grid_near_threshold_m').value
+        )
         self.h_aperture_deg = float(np.clip(
             self.h_aperture_deg,
             self.h_aperture_min_deg,
@@ -193,11 +216,20 @@ class DepthGridHeatmapNode(Node):
             self.render_backend = 'pygame'
 
         self.sub = self.create_subscription(DepthGrid, self.topic, self.cb, 10)
+        self.extended_sub = None
+        if self.extended_grid_alert_enabled:
+            self.extended_sub = self.create_subscription(
+                DepthGrid,
+                self.extended_grid_topic,
+                self.extended_cb,
+                10,
+            )
 
         # Estado compartido (actualizado por el callback)
         self.latest_m = None     # intensidad 0..100
         self.latest_cnt = None   # count
         self.latest_shape = None
+        self.extended_alert = None
         self._dirty = False
         self._dragging_aperture = False
         self._last_aperture_send_s = 0.0
@@ -234,7 +266,8 @@ class DepthGridHeatmapNode(Node):
             f'| backend={self.render_backend} '
             f'| flip_rows={self.flip_rows_for_display} '
             f'| pygame_view={self.pygame_view_mode} '
-            f'| aperture={self.h_aperture_deg:.1f}deg'
+            f'| aperture={self.h_aperture_deg:.1f}deg '
+            f'| extended_alert={self.extended_grid_alert_enabled}'
         )
 
     def _setup_matplotlib(self):
@@ -309,6 +342,57 @@ class DepthGridHeatmapNode(Node):
         self.latest_m = m
         self.latest_cnt = cnt
         self.latest_shape = m.shape
+        self._dirty = True
+
+    def extended_cb(self, msg: DepthGrid):
+        try:
+            d_m, cnt = extract_distance_and_count(msg)
+        except Exception as e:
+            self.get_logger().error(f'No pude parsear extended DepthGrid: {e}')
+            return
+
+        rows, cols = d_m.shape
+        if rows <= 0 or cols <= 0:
+            self.extended_alert = None
+            self._dirty = True
+            return
+
+        out_half = 0.5 * self.extended_grid_output_fov_deg
+        in_half = 0.5 * self.extended_grid_input_fov_deg
+        col_angles = np.linspace(
+            -out_half,
+            out_half,
+            cols,
+            endpoint=False,
+            dtype=np.float32,
+        )
+        col_angles += self.extended_grid_output_fov_deg / max(cols, 1) * 0.5
+
+        side_mask = np.abs(col_angles) > in_half
+        valid = (
+            side_mask[None, :]
+            & (cnt > 0)
+            & np.isfinite(d_m)
+            & (d_m > 0.0)
+            & (d_m <= self.extended_grid_near_threshold_m)
+        )
+
+        if not np.any(valid):
+            self.extended_alert = None
+            self._dirty = True
+            return
+
+        masked = np.where(valid, d_m, np.inf)
+        idx = int(np.argmin(masked))
+        row, col = np.unravel_index(idx, masked.shape)
+        side = 'LEFT' if col_angles[col] < 0.0 else 'RIGHT'
+        self.extended_alert = {
+            'side': side,
+            'distance_m': float(masked[row, col]),
+            'angle_deg': float(col_angles[col]),
+            'row': int(row),
+            'col': int(col),
+        }
         self._dirty = True
 
     def _clear_texts(self):
@@ -605,6 +689,33 @@ class DepthGridHeatmapNode(Node):
             center=True,
         )
 
+    def _draw_extended_alert(self):
+        if not self.extended_grid_alert_enabled or self.extended_alert is None:
+            return
+
+        width, _height = self.screen.get_size()
+        side = self.extended_alert['side']
+        distance = self.extended_alert['distance_m']
+        angle = self.extended_alert['angle_deg']
+        label = f'SIDE ALERT {side}  {distance:.2f} m  {angle:+.0f}°'
+        box_w = min(width - 96, 520)
+        rect = pygame.Rect((width - box_w) // 2, 116, box_w, 40)
+
+        pulse = 0.5 + 0.5 * math.sin(time.monotonic() * 8.0)
+        bg_alpha = int(150 + 70 * pulse)
+        panel = pygame.Surface(rect.size, pygame.SRCALPHA)
+        pygame.draw.rect(panel, (178, 24, 43, bg_alpha), panel.get_rect(), border_radius=6)
+        self.screen.blit(panel, rect)
+        pygame.draw.rect(self.screen, HOT, rect, 2, border_radius=6)
+        self._draw_text(
+            label,
+            rect.center,
+            self.font,
+            (255, 245, 235),
+            center=True,
+            glow=True,
+        )
+
     def _cell_rect(
         self,
         plot_rect,
@@ -739,6 +850,7 @@ class DepthGridHeatmapNode(Node):
             center=True,
         )
         self._draw_aperture_slider()
+        self._draw_extended_alert()
 
         plot_rect, cbar_rect = self._layout(rows, cols)
         plot_rect = plot_rect.inflate(-24, -58)
@@ -879,6 +991,7 @@ class DepthGridHeatmapNode(Node):
             glow=True,
         )
         self._draw_aperture_slider()
+        self._draw_extended_alert()
 
         plot_rect, cbar_rect = self._layout(rows, cols)
         rgb = intensity_to_neon_rgb(m)
