@@ -387,7 +387,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
   //   1) odom → gravity_aligned_frame  (posición + solo yaw)
   //   2) gravity_aligned_frame → camera_depth_optical_frame  (roll+pitch)
   void onOdom(const nav_msgs::msg::Odometry::SharedPtr msg) {
-    nav_math::Quaternion q_msg{
+    const nav_math::Quaternion q_msg = nav_math::Quaternion{
         static_cast<float>(msg->pose.pose.orientation.w),
         static_cast<float>(msg->pose.pose.orientation.x),
         static_cast<float>(msg->pose.pose.orientation.y),
