@@ -11,6 +11,7 @@
 #include "custom_interfaces/msg/depth_cell_stats.hpp"
 #include "custom_interfaces/msg/depth_grid.hpp"
 #include "nav_msgs/msg/odometry.hpp"
+#include "std_msgs/msg/float32.hpp"
 
 namespace {
 
@@ -67,9 +68,13 @@ public:
         odom_topic_ = declare_parameter<std::string>("odom_topic", "/nav_odom");
         output_grid_topic_ = declare_parameter<std::string>(
             "output_grid_topic", "/perception/extended_depth_grid");
+        odom_convention_ = declare_parameter<std::string>(
+            "odom_convention", "optical_y_down");
+        aperture_command_topic_ = declare_parameter<std::string>(
+            "aperture_command_topic", "/perception/depth_grid/aperture_deg");
 
         input_fov_rad_ = deg2rad(static_cast<float>(
-            declare_parameter<double>("input_fov_deg", 140.0)));
+            declare_parameter<double>("input_fov_deg", 90.0)));
         output_fov_rad_ = deg2rad(static_cast<float>(
             declare_parameter<double>("output_fov_deg", 270.0)));
         output_rows_ = declare_parameter<int>("output_rows", 5);
@@ -100,6 +105,11 @@ public:
         if (input_fov_rad_ <= 0.0f || output_fov_rad_ <= input_fov_rad_) {
             throw std::runtime_error("output_fov_deg debe ser mayor que input_fov_deg");
         }
+        if (odom_convention_ != "optical_y_down" &&
+            odom_convention_ != "rep103") {
+            throw std::runtime_error(
+                "odom_convention debe ser optical_y_down o rep103");
+        }
 
         odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
             odom_topic_, rclcpp::SensorDataQoS(),
@@ -109,12 +119,22 @@ public:
             input_grid_topic_, 10,
             std::bind(&ExtendedDepthGridNode::onGrid, this, std::placeholders::_1));
 
+        aperture_sub_ = create_subscription<std_msgs::msg::Float32>(
+            aperture_command_topic_, 10,
+            [this](const std_msgs::msg::Float32::SharedPtr msg) {
+                if (!std::isfinite(msg->data) || msg->data <= 0.0f) return;
+                input_fov_rad_ = 2.0f * deg2rad(msg->data);
+            });
+
         grid_pub_ = create_publisher<custom_interfaces::msg::DepthGrid>(
             output_grid_topic_, 10);
 
         RCLCPP_INFO(get_logger(),
-            "ExtendedDepthGrid listo. in=%s odom=%s out=%s FOV %.1f -> %.1f deg grid=%dx%d",
-            input_grid_topic_.c_str(), odom_topic_.c_str(), output_grid_topic_.c_str(),
+            "ExtendedDepthGrid listo. in=%s odom=%s (%s) out=%s "
+            "FOV %.1f -> %.1f deg grid=%dx%d",
+            input_grid_topic_.c_str(), odom_topic_.c_str(),
+            odom_convention_.c_str(),
+            output_grid_topic_.c_str(),
             rad2deg(input_fov_rad_), rad2deg(output_fov_rad_),
             output_rows_, output_cols_);
     }
@@ -139,9 +159,24 @@ private:
     void onOdom(const nav_msgs::msg::Odometry::SharedPtr msg)
     {
         Pose2D pose;
-        pose.x = static_cast<float>(msg->pose.pose.position.x);
-        pose.z = static_cast<float>(msg->pose.pose.position.z);
-        pose.yaw = yawFromOdom(*msg);
+        if (odom_convention_ == "rep103") {
+            // RTAB-Map: mundo REP-103 (X adelante, Y izquierda, Z arriba)
+            // y child frame óptico. Convertimos al plano interno X derecha,
+            // Z adelante usado por DepthGrid.
+            pose.x = -static_cast<float>(msg->pose.pose.position.y);
+            pose.z =  static_cast<float>(msg->pose.pose.position.x);
+
+            const auto& q = msg->pose.pose.orientation;
+            const float forward_ros_x = static_cast<float>(
+                2.0 * (q.x * q.z + q.w * q.y));
+            const float forward_ros_y = static_cast<float>(
+                2.0 * (q.y * q.z - q.w * q.x));
+            pose.yaw = std::atan2(-forward_ros_y, forward_ros_x);
+        } else {
+            pose.x = static_cast<float>(msg->pose.pose.position.x);
+            pose.z = static_cast<float>(msg->pose.pose.position.z);
+            pose.yaw = yawFromOdom(*msg);
+        }
         pose.stamp = msg->header.stamp;
         pose.valid = true;
 
@@ -346,8 +381,10 @@ private:
     std::string input_grid_topic_;
     std::string odom_topic_;
     std::string output_grid_topic_;
+    std::string odom_convention_;
+    std::string aperture_command_topic_;
 
-    float input_fov_rad_ = deg2rad(140.0f);
+    float input_fov_rad_ = deg2rad(90.0f);
     float output_fov_rad_ = deg2rad(270.0f);
     int output_rows_ = 5;
     int output_cols_ = 18;
@@ -369,6 +406,7 @@ private:
 
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
     rclcpp::Subscription<custom_interfaces::msg::DepthGrid>::SharedPtr grid_sub_;
+    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr aperture_sub_;
     rclcpp::Publisher<custom_interfaces::msg::DepthGrid>::SharedPtr grid_pub_;
 };
 

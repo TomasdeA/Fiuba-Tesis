@@ -358,7 +358,9 @@ class DepthGridHeatmapNode(Node):
             return
 
         out_half = 0.5 * self.extended_grid_output_fov_deg
-        in_half = 0.5 * self.extended_grid_input_fov_deg
+        # h_aperture_deg es el semiancho efectivo del grid instantáneo y se
+        # actualiza junto con el control del encoder.
+        in_half = self.h_aperture_deg
         col_angles = np.linspace(
             -out_half,
             out_half,

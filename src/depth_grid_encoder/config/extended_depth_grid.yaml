@@ -3,9 +3,12 @@ extended_depth_grid:
     input_grid_topic: "/perception/depth_grid"
     odom_topic: "/nav_odom"
     output_grid_topic: "/perception/extended_depth_grid"
+    odom_convention: "optical_y_down"
+    aperture_command_topic: "/perception/depth_grid/aperture_deg"
 
-    # La cámara D435i aporta aproximadamente -70..+70 grados útiles.
-    input_fov_deg: 140.0
+    # Apertura total inicial. El nodo la actualiza con el comando de apertura
+    # del obstacle_grid_encoder (el comando usa semiancho, por ejemplo 45°).
+    input_fov_deg: 90.0
     output_fov_deg: 270.0
 
     # 5x18 equivale a 15 grados por columna en 270 grados.

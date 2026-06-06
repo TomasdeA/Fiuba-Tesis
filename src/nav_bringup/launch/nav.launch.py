@@ -129,8 +129,20 @@ def generate_launch_description():
     monitor_signal     = LaunchConfiguration('monitor_signal')
     use_extended_grid  = LaunchConfiguration('use_extended_grid')
     extended_grid_cols = LaunchConfiguration('extended_grid_cols')
+    display_extended_grid = LaunchConfiguration('display_extended_grid')
     use_rtabmap_odom = PythonExpression([
         "'", orientation_source, "' == 'rtabmap_odom'"
+    ])
+    extended_odom_convention = PythonExpression([
+        "'rep103' if '", orientation_source,
+        "' == 'rtabmap_odom' else 'optical_y_down'"
+    ])
+    viewer_topic = PythonExpression([
+        "'/perception/extended_depth_grid' if '", display_extended_grid,
+        "' == 'true' else '/perception/depth_grid'"
+    ])
+    viewer_mode = PythonExpression([
+        "'grid' if '", display_extended_grid, "' == 'true' else 'curved'"
     ])
 
     # ── Config file paths ─────────────────────────────────
@@ -361,11 +373,12 @@ def generate_launch_description():
             {
                 'max_valid_depth_m': _depth_max_m,
                 'output_cols': ParameterValue(extended_grid_cols, value_type=int),
+                'odom_convention': extended_odom_convention,
             },
         ],
         output='screen',
         condition=IfCondition(PythonExpression([
-            "'", use_extended_grid, "' == 'true' and '", pipeline_mode, "' != 'none'"
+            "'", use_extended_grid, "' == 'true' and '", pipeline_mode, "' == 'filtered'"
         ])),
     )
 
@@ -396,16 +409,39 @@ def generate_launch_description():
         output='screen',
         condition=IfCondition(use_viz),
         parameters=[{
+            'topic': viewer_topic,
             'flip_rows_for_display': False,
-            'h_aperture_deg': 45.0,
+            'pygame_view_mode': viewer_mode,
+            'aperture_control_enabled': ParameterValue(
+                PythonExpression([
+                    "'", display_extended_grid, "' != 'true'"
+                ]),
+                value_type=bool,
+            ),
+            'h_aperture_deg': ParameterValue(
+                PythonExpression([
+                    "135.0 if '", display_extended_grid,
+                    "' == 'true' else 45.0"
+                ]),
+                value_type=float,
+            ),
             'h_aperture_min_deg': 15.0,
-            'h_aperture_max_deg': 70.0,
+            'h_aperture_max_deg': ParameterValue(
+                PythonExpression([
+                    "135.0 if '", display_extended_grid,
+                    "' == 'true' else 70.0"
+                ]),
+                value_type=float,
+            ),
             'extended_grid_alert_enabled': ParameterValue(
-                use_extended_grid,
+                PythonExpression([
+                    "'", use_extended_grid, "' == 'true' and '",
+                    display_extended_grid, "' != 'true'"
+                ]),
                 value_type=bool,
             ),
             'extended_grid_topic': '/perception/extended_depth_grid',
-            'extended_grid_input_fov_deg': 140.0,
+            'extended_grid_input_fov_deg': 90.0,
             'extended_grid_output_fov_deg': 270.0,
             'extended_grid_near_threshold_m': 0.50,
         }],
@@ -529,6 +565,11 @@ def generate_launch_description():
             'extended_grid_cols',
             default_value='18',
             description='Columnas de salida de la grilla extendida (18 ~= 15 deg/celda en 270 deg)',
+        ),
+        DeclareLaunchArgument(
+            'display_extended_grid',
+            default_value='false',
+            description='Mostrar /perception/extended_depth_grid completo en output_viewer',
         ),
         DeclareLaunchArgument(
             'debug',

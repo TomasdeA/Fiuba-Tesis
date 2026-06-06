@@ -67,6 +67,7 @@ target_include_directories(extended_depth_grid PUBLIC
 ament_target_dependencies(extended_depth_grid
     rclcpp
     nav_msgs
+    std_msgs
     custom_interfaces)
 
 # Instalation
