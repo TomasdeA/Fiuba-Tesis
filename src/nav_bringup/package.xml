@@ -12,6 +12,8 @@
   <depend>ament_index_python</depend>
 
   <exec_depend>realsense2_camera</exec_depend>
+  <exec_depend>imu_filter_madgwick</exec_depend>
+  <exec_depend>rtabmap_odom</exec_depend>
   <exec_depend>local_mapper</exec_depend>
   <exec_depend>depth_grid_encoder</exec_depend>
   <!-- <exec_depend>haptic_grid_generator</exec_depend> -->

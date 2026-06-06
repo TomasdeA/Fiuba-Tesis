@@ -65,8 +65,13 @@ def _make_realsense_node(context, *args, **kwargs):
     except Exception:
         return [LogInfo(msg='realsense2_camera not found — skipping camera launch')]
 
-    use_visual = context.launch_configurations.get(
-        'use_visual_odometry', 'false').lower() == 'true'
+    use_rtabmap_odom = context.launch_configurations.get(
+        'orientation_source', 'nav_odom').lower() == 'rtabmap_odom'
+    use_visual = (
+        context.launch_configurations.get(
+            'use_visual_odometry', 'false').lower() == 'true'
+        or use_rtabmap_odom
+    )
     depth_profile = context.launch_configurations.get(
         'realsense_depth_profile', '640x480x15')
     color_profile = context.launch_configurations.get(
@@ -80,6 +85,7 @@ def _make_realsense_node(context, *args, **kwargs):
         'enable_infra2': False,
         'enable_color': use_visual,
         'align_depth.enable': use_visual,
+        'unite_imu_method': 1,
         'depth_module.depth_profile': depth_profile,
         'initial_reset': True,
         'reconnect_timeout': 10.0,
@@ -121,6 +127,9 @@ def generate_launch_description():
     use_bag            = LaunchConfiguration('use_bag')
     performance        = LaunchConfiguration('performance')
     monitor_signal     = LaunchConfiguration('monitor_signal')
+    use_rtabmap_odom = PythonExpression([
+        "'", orientation_source, "' == 'rtabmap_odom'"
+    ])
 
     # ── Config file paths ─────────────────────────────────
     depth_to_matrix_cfg = PathJoinSubstitution([
@@ -179,6 +188,71 @@ def generate_launch_description():
     # Created at launch runtime so use_visual_odometry can select the streams:
     # IMU-only keeps color/alignment disabled; visual odometry enables RGBD.
     realsense = OpaqueFunction(function=_make_realsense_node)
+
+    # ── IMU orientation for RTAB-Map ─────────────────────
+    # RealSense publishes gyro/accel without orientation. With unite_imu_method=1
+    # it also publishes /camera/camera/imu, which Madgwick converts into an
+    # orientation-bearing sensor_msgs/Imu for rgbd_odometry's IMU prior.
+    imu_filter = Node(
+        package='imu_filter_madgwick',
+        executable='imu_filter_madgwick_node',
+        name='imu_filter_madgwick',
+        output='screen',
+        condition=IfCondition(use_rtabmap_odom),
+        parameters=[{
+            'use_mag': False,
+            'publish_tf': False,
+            'world_frame': 'enu',
+            'gain': 0.01,
+            'zeta': 0.0,
+            'use_topic_names_from_ros_params': True,
+        }],
+        remappings=[
+            ('imu/data_raw', '/camera/camera/imu'),
+            ('imu/data', '/imu/data_filtered'),
+        ],
+    )
+
+    # ── RTAB-Map RGB-D odometry ──────────────────────────
+    # Publishes nav_msgs/Odometry remapped to nav_odom so depth_obstacle_filter
+    # can consume it through the same interface as the internal nav_odometry.
+    rtabmap_odometry = Node(
+        package='rtabmap_odom',
+        executable='rgbd_odometry',
+        name='rgbd_odometry',
+        output='screen',
+        condition=IfCondition(use_rtabmap_odom),
+        parameters=[{
+            'frame_id': 'camera_color_optical_frame',
+            'odom_frame_id': 'odom',
+            # depth_obstacle_filter publica la cadena TF usada por el mapper.
+            # Evita dos caminos odom->camera_* y ciclos con los TF estáticos
+            # publicados por realsense2_camera.
+            'publish_tf': False,
+            'approx_sync': True,
+            'approx_sync_max_interval': 0.08,
+            'use_imu': True,
+            'wait_imu_to_init': True,
+            'Vis/MaxDepth': '4.0',
+            'Vis/MinInliers': '15',
+            'Vis/FeatureType': '8',
+            'Vis/MaxFeatures': '600',
+            'OdomF2M/MaxSize': '3000',
+            'Odom/Strategy': '0',
+            'Odom/ResetCountdown': '0',
+            'Odom/GuessMotion': 'true',
+            'Odom/FilteringStrategy': '1',
+            'Vis/DepthAsMask': 'true',
+            'always_check_imu_tf': False,
+        }],
+        remappings=[
+            ('rgb/image', '/camera/camera/color/image_raw'),
+            ('rgb/camera_info', '/camera/camera/color/camera_info'),
+            ('depth/image', '/camera/camera/aligned_depth_to_color/image_raw'),
+            ('imu', '/imu/data_filtered'),
+            ('odom', 'nav_odom'),
+        ],
+    )
 
     # ── nav_odometry: IMU + estéreo → nav_msgs/Odometry ──
     # Fusiona giroscopio, acelerómetro y tracker estéreo infrarrojo
@@ -396,10 +470,12 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'orientation_source',
             default_value='nav_odom',
-            choices=['nav_odom', 'imu_legacy'],
+            choices=['nav_odom', 'imu_legacy', 'rtabmap_odom'],
             description=(
-                "Fuente de roll/pitch para depth_obstacle_filter: "
-                "'nav_odom' lanza nav_odometry; 'imu_legacy' usa GravityAligner"
+                "Fuente de orientación/odometría para depth_obstacle_filter: "
+                "'nav_odom' usa nav_odometry interno; "
+                "'imu_legacy' usa GravityAligner; "
+                "'rtabmap_odom' usa rtabmap rgbd_odometry"
             ),
         ),
         DeclareLaunchArgument(
@@ -479,6 +555,8 @@ def generate_launch_description():
             function=_resolve_bag_path,
             condition=IfCondition(use_bag),
         ),
+        imu_filter,
+        TimerAction(period=5.0, actions=[rtabmap_odometry]),
         nav_odometry,
         depth_obstacle_filter,
         local_mapper,
