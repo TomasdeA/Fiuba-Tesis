@@ -91,8 +91,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'orientation_source',
             default_value='nav_odom',
-            choices=['nav_odom', 'imu_legacy'],
-            description='Fuente de roll/pitch: nav_odom o acelerómetro legacy',
+            choices=['nav_odom', 'imu_legacy', 'rtabmap_odom'],
+            description='Fuente de orientación: nav_odom, rtabmap_odom o acelerómetro legacy',
         ),
         DeclareLaunchArgument(
             'performance',

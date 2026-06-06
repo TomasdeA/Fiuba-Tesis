@@ -105,6 +105,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     orientation_source_ =
         declare_parameter<std::string>("orientation_source", "nav_odom");
     if (orientation_source_ != "nav_odom" &&
+        orientation_source_ != "rtabmap_odom" &&
         orientation_source_ != "imu_legacy") {
       RCLCPP_WARN(get_logger(),
           "orientation_source='%s' invalido; usando nav_odom",
@@ -215,7 +216,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
 
  private:
   bool useNavOdomOrientation() const {
-    return orientation_source_ == "nav_odom";
+    return orientation_source_ == "nav_odom" || orientation_source_ == "rtabmap_odom";
   }
 
   bool useLegacyImuOrientation() const {
