@@ -387,11 +387,42 @@ class DepthObstacleFilterNode : public rclcpp::Node {
   //   1) odom → gravity_aligned_frame  (posición + solo yaw)
   //   2) gravity_aligned_frame → camera_depth_optical_frame  (roll+pitch)
   void onOdom(const nav_msgs::msg::Odometry::SharedPtr msg) {
-    q_ = nav_math::Quaternion{
+    nav_math::Quaternion q_msg{
         static_cast<float>(msg->pose.pose.orientation.w),
         static_cast<float>(msg->pose.pose.orientation.x),
         static_cast<float>(msg->pose.pose.orientation.y),
         static_cast<float>(msg->pose.pose.orientation.z)}.normalized();
+
+    float pos_x = static_cast<float>(msg->pose.pose.position.x);
+    float pos_y = static_cast<float>(msg->pose.pose.position.y);
+    float pos_z = static_cast<float>(msg->pose.pose.position.z);
+
+    if (orientation_source_ == "rtabmap_odom") {
+      // RTAB-Map publica el mundo según REP-103:
+      //   X adelante, Y izquierda, Z arriba.
+      // El pipeline interno usa la convención óptica:
+      //   X derecha, Y abajo, Z adelante.
+      //
+      // Cambio de base mundo ROS -> mundo interno:
+      //   p_int = {-p_ros.y, -p_ros.z, p_ros.x}
+      //   q_int = q_ros_to_internal * q_ros
+      //
+      // q_ros_to_internal corresponde a la matriz:
+      //   [ 0 -1  0 ]
+      //   [ 0  0 -1 ]
+      //   [ 1  0  0 ]
+      static const nav_math::Quaternion q_ros_to_internal{
+          0.5f, 0.5f, -0.5f, 0.5f};
+      q_ = (q_ros_to_internal * q_msg).normalized();
+      odom_pos_x_ = -pos_y;
+      odom_pos_y_ = -pos_z;
+      odom_pos_z_ =  pos_x;
+    } else {
+      q_ = q_msg;
+      odom_pos_x_ = pos_x;
+      odom_pos_y_ = pos_y;
+      odom_pos_z_ = pos_z;
+    }
 
     // ── Yaw en Y-down ─────────────────────────────────────────────────────────
     const nav_math::Vec3 fwd = q_.rotate({0.f, 0.f, 1.f});
@@ -409,9 +440,6 @@ class DepthObstacleFilterNode : public rclcpp::Node {
       q_rp_ = {-q_rp_.w, -q_rp_.x, -q_rp_.y, -q_rp_.z};
     }
 
-    odom_pos_x_ = static_cast<float>(msg->pose.pose.position.x);
-    odom_pos_y_ = static_cast<float>(msg->pose.pose.position.y);
-    odom_pos_z_ = static_cast<float>(msg->pose.pose.position.z);
     q_yaw_yd_cached_ = q_yaw_yd;
 
     publishOrientationTransforms(msg->header.stamp);

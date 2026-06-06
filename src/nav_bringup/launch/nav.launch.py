@@ -225,7 +225,10 @@ def generate_launch_description():
         parameters=[{
             'frame_id': 'camera_color_optical_frame',
             'odom_frame_id': 'odom',
-            'publish_tf': True,
+            # depth_obstacle_filter publica la cadena TF usada por el mapper.
+            # Evita dos caminos odom->camera_* y ciclos con los TF estáticos
+            # publicados por realsense2_camera.
+            'publish_tf': False,
             'approx_sync': True,
             'approx_sync_max_interval': 0.08,
             'use_imu': True,
