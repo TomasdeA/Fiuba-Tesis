@@ -26,6 +26,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <rclcpp/rclcpp.hpp>
+#include <algorithm>
 #include <limits>
 #include <cmath>
 
@@ -68,7 +69,9 @@ class OccupancyMapperNode : public rclcpp::Node {
     om_cfg.enable_raycasting = declare_parameter<bool>("occupancy_enable_raycasting", true);
     occupancy_mapper_ = std::make_unique<local_mapper::OccupancyMapper>(om_cfg);
 
-    publish_every_n_frames_ = declare_parameter<int>("occupancy_publish_every_n_frames", 15);
+    publish_every_n_frames_ =
+        std::max(1, static_cast<int>(declare_parameter<int>(
+                        "occupancy_publish_every_n_frames", 1)));
 
     // ── Publicador ───────────────────────────────────────────────────────────
     occupancy_pub_ = create_publisher<nav_msgs::msg::OccupancyGrid>(
@@ -154,10 +157,10 @@ class OccupancyMapperNode : public rclcpp::Node {
     const auto occ_pts  = decodeCloud(*obstacle_cloud);
     const auto free_pts = decodeCloud(*free_endpoints);
 
-    // ── Actualizar mapa ───────────────────────────────────────────────────────
+    // ── Actualizar mapa ──────────────────────────────────────────────────────
     occupancy_mapper_->update(occ_pts, sx, sz, free_pts);
 
-    // ── Publicar OccupancyGrid (throttled para no saturar RViz) ──────────────
+    // ── Publicar OccupancyGrid con la cadencia configurada ───────────────────
     ++occ_frame_count_;
     if (occupancy_pub_->get_subscription_count() > 0 &&
         occ_frame_count_ >= publish_every_n_frames_) {
@@ -215,8 +218,8 @@ class OccupancyMapperNode : public rclcpp::Node {
   float shift_accum_ci_ = 0.f;
   float shift_accum_cj_ = 0.f;
 
-  int occ_frame_count_         = 0;
-  int publish_every_n_frames_  = 15;
+  int occ_frame_count_        = 0;
+  int publish_every_n_frames_ = 1;
 };
 
 int main(int argc, char** argv) {

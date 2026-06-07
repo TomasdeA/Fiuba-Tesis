@@ -43,6 +43,8 @@ public:
             "cloud_topic", "/depth_obstacle_filter/obstacle_cloud");
         aperture_command_topic_ = this->declare_parameter<std::string>(
             "aperture_command_topic", "/perception/depth_grid/aperture_deg");
+        aperture_state_topic_ = this->declare_parameter<std::string>(
+            "aperture_state_topic", "/perception/depth_grid/aperture_state_deg");
 
         cfg_.rows    = static_cast<int>(this->declare_parameter<int>("rows", 5));
         cfg_.cols    = static_cast<int>(this->declare_parameter<int>("cols", 10));
@@ -77,6 +79,8 @@ public:
                 grid_mapping_mode_.c_str());
             grid_mapping_mode_ = "angular";
         }
+        aperture_state_pub_ = this->create_publisher<std_msgs::msg::Float32>(
+            aperture_state_topic_, rclcpp::QoS(1).transient_local());
         param_cb_handle_ = this->add_on_set_parameters_callback(
             [this](const std::vector<rclcpp::Parameter>& params) {
                 return this->onSetParameters(params);
@@ -114,6 +118,7 @@ public:
 
         grid_pub_ = this->create_publisher<custom_interfaces::msg::DepthGrid>(
             "/perception/depth_grid", 10);
+        publishApertureState();
 
         heartbeat_ = this->create_wall_timer(
             1000ms, [this]() {
@@ -201,6 +206,14 @@ private:
             std::clamp(h_aperture_deg_, h_aperture_min_deg_, h_aperture_max_deg_);
     }
 
+    void publishApertureState()
+    {
+        if (!aperture_state_pub_) return;
+        std_msgs::msg::Float32 state;
+        state.data = h_aperture_deg_;
+        aperture_state_pub_->publish(state);
+    }
+
     static void accumulateCell(
         int idx,
         float dist,
@@ -249,6 +262,7 @@ private:
             }
 
             h_aperture_deg_ = static_cast<float>(value);
+            publishApertureState();
             RCLCPP_INFO(get_logger(),
                 "[apertura] h_aperture_deg=%.1f", h_aperture_deg_);
         }
@@ -276,6 +290,7 @@ private:
         this->set_parameter(rclcpp::Parameter(
             "h_aperture_deg",
             static_cast<double>(h_aperture_deg_)));
+        publishApertureState();
         RCLCPP_INFO(get_logger(),
             "[apertura] h_aperture_deg=%.1f por topico %s",
             h_aperture_deg_,
@@ -581,6 +596,7 @@ private:
 
     std::string cloud_topic_;
     std::string aperture_command_topic_;
+    std::string aperture_state_topic_;
     tesis_nav::GridConfig cfg_;
     float x_min_, x_max_, y_min_, y_max_;
     std::string grid_mapping_mode_{"angular"};
@@ -613,6 +629,7 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
     rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr         height_sub_;
     rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr         aperture_sub_;
+    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr            aperture_state_pub_;
     rclcpp::Publisher<custom_interfaces::msg::DepthGrid>::SharedPtr grid_pub_;
     rclcpp::TimerBase::SharedPtr heartbeat_;
     rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr

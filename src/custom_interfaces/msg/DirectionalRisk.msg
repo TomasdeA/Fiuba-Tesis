@@ -1,0 +1,5 @@
+bool active
+float32 intensity
+float32 distance_m
+float32 closing_speed_mps
+float32 time_to_collision_s

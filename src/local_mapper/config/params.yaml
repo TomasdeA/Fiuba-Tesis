@@ -16,7 +16,6 @@ local_mapper:
     # Activa el ray casting de espacio libre (recomendado: true)
     occupancy_enable_raycasting: true
     occupancy_forget_radius_m: 10.0
-    # Throttle de publicación del OccupancyGrid.
-    # 15 frames @ 30 Hz = ~2 Hz. Publicar más rápido llena la queue de
-    # RViz y genera drops continuos.
-    occupancy_publish_every_n_frames: 15
+    # Publicar cada actualización. La cámara opera a 6 Hz y spatial_awareness
+    # necesita el mapa más reciente para estimar tiempo hasta colisión.
+    occupancy_publish_every_n_frames: 1
