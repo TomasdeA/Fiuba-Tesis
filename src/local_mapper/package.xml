@@ -19,6 +19,7 @@
   <depend>geometry_msgs</depend>
   <depend>nav_msgs</depend>
   <depend>message_filters</depend>
+  <depend>nav_math</depend>
 
   <export>
     <build_type>ament_cmake</build_type>

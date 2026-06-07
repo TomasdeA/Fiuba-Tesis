@@ -11,6 +11,7 @@
 //   v_world = q.rotate(v_body)
 // ─────────────────────────────────────────────────────────────────────────────
 
+#include "nav_math/constants.hpp"
 #include "nav_math/vec3.hpp"
 #include <array>
 #include <cmath>
@@ -107,7 +108,7 @@ struct Quaternion {
         const float yaw   = yawY();
         const float sinp  = 2.f * (w * x - y * z);
         const float pitch = std::abs(sinp) >= 1.f
-                            ? std::copysign(static_cast<float>(M_PI) * 0.5f, sinp)
+                            ? std::copysign(kHalfPi, sinp)
                             : std::asin(sinp);
         const float sinr  = 2.f * (w * z + x * y);
         const float cosr  = 1.f - 2.f * (x * x + z * z);

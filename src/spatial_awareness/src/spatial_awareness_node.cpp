@@ -410,8 +410,7 @@ class SpatialAwarenessNode : public rclcpp::Node {
     markers.markers.push_back(clear);
 
     if (valid) {
-      const float aperture_rad =
-          aperture_half_angle_deg_ * 3.14159265358979323846f / 180.0f;
+      const float aperture_rad = nav_math::deg2rad(aperture_half_angle_deg_);
       const auto forward = pose_.forward.normalized();
       const auto rotate = [](const nav_math::Vec2& vector,
                              float angle) {

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <nav_math/nav_math.hpp>
 #include <cstring>
 #include <future>
 #include <numeric>
@@ -581,8 +582,8 @@ bool GroundEstimator::stage5_validate(const Plane& plane) const {
   // su normal debe estar cerca del eje Y (|ny| grande)
   // Ángulo entre la normal y el eje Y: cos(α) = |ny|
   const float cos_tilt = std::abs(plane.ny);
-  const float tilt_deg = std::acos(std::clamp(cos_tilt, 0.0f, 1.0f))
-                         * 180.0f / static_cast<float>(M_PI);
+  const float tilt_deg =
+      nav_math::rad2deg(std::acos(std::clamp(cos_tilt, 0.0f, 1.0f)));
   return tilt_deg < cfg_.max_tilt_deg;
 }
 

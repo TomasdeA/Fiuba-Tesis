@@ -9,13 +9,9 @@
 namespace spatial_awareness {
 namespace {
 
-constexpr float kPi = 3.14159265358979323846f;
-
 float clamp(float value, float low, float high) {
   return std::max(low, std::min(value, high));
 }
-
-float radians(float degrees) { return degrees * kPi / 180.0f; }
 
 std::int64_t cellKey(int x, int z) {
   const auto upper = static_cast<std::uint64_t>(static_cast<std::uint32_t>(x));
@@ -100,7 +96,8 @@ bool RiskEvaluator::makeCandidate(const Pose2D& pose, const Vec2& velocity,
   const Vec2 right{forward.z, -forward.x};
   const float angle = std::atan2(right.dot(relative), forward.dot(relative));
   const float aperture =
-      radians(std::max(0.0f, aperture_half_angle_deg) + config_.fov_margin_deg);
+      nav_math::deg2rad(std::max(0.0f, aperture_half_angle_deg) +
+                        config_.fov_margin_deg);
   if (std::abs(angle) <= aperture) {
     return false;
   }
@@ -108,13 +105,14 @@ bool RiskEvaluator::makeCandidate(const Pose2D& pose, const Vec2& velocity,
   const Vec2 velocity_direction = velocity * (1.0f / speed);
   const float longitudinal = relative.dot(velocity_direction);
   const Vec2 lateral_vector = relative - velocity_direction * longitudinal;
-  const float cell_radius = config_.cell_size_m * std::sqrt(2.0f) * 0.5f;
+  const float cell_radius = config_.cell_size_m * nav_math::kHalfSqrt2;
   if (longitudinal <= 0.0f ||
       lateral_vector.norm() > config_.body_radius_m + cell_radius) {
     return false;
   }
 
-  const float rear_start = kPi - radians(config_.rear_half_angle_deg);
+  const float rear_start =
+      nav_math::kPi - nav_math::deg2rad(config_.rear_half_angle_deg);
   bool region_was_active = false;
   if (std::abs(angle) >= rear_start) {
     candidate.region = Region::kRear;

@@ -1,5 +1,6 @@
 #include <rclcpp/rclcpp.hpp>
 #include <algorithm>
+#include <nav_math/nav_math.hpp>
 #include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
@@ -16,8 +17,6 @@
 
 using std::placeholders::_1;
 using namespace std::chrono_literals;
-
-constexpr float kPi = 3.14159265358979323846f;
 
 // Proyecta una nube de puntos de obstáculos (PointCloud2 en gravity_aligned_frame)
 // sobre una grilla 2D XY de rows×cols celdas.
@@ -173,12 +172,12 @@ private:
 
     static float deg2rad(float deg)
     {
-        return deg * kPi / 180.0f;
+        return nav_math::deg2rad(deg);
     }
 
     static float rad2deg(float rad)
     {
-        return rad * 180.0f / kPi;
+        return nav_math::rad2deg(rad);
     }
 
     static int binIndex(float value, float min_value, float max_value, int bins)

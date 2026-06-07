@@ -27,6 +27,7 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <algorithm>
+#include <nav_math/nav_math.hpp>
 #include <limits>
 #include <cmath>
 
@@ -179,12 +180,11 @@ class OccupancyMapperNode : public rclcpp::Node {
       // origin.y = altura del suelo publicada por depth_obstacle_filter.
       // La rotación de +90° en X alinea el plano XY del grid con el plano XZ
       // de odom (Y=abajo en convención óptica).
-      static constexpr double kHalfSqrt2 = 0.7071067811865476;
       occ_msg.info.origin.position.x = static_cast<double>(occupancy_mapper_->originX());
       occ_msg.info.origin.position.y = static_cast<double>(floor_height_m);
       occ_msg.info.origin.position.z = static_cast<double>(occupancy_mapper_->originZ());
-      occ_msg.info.origin.orientation.w = kHalfSqrt2;
-      occ_msg.info.origin.orientation.x = kHalfSqrt2;
+      occ_msg.info.origin.orientation.w = nav_math::kHalfSqrt2;
+      occ_msg.info.origin.orientation.x = nav_math::kHalfSqrt2;
       occ_msg.info.origin.orientation.y = 0.0;
       occ_msg.info.origin.orientation.z = 0.0;
 
