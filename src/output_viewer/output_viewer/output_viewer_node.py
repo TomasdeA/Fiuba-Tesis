@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from custom_interfaces.msg import DepthGrid
+from custom_interfaces.msg import HapticGrid
 from custom_interfaces.msg import SpatialAwareness
 from rcl_interfaces.msg import Parameter
 from rcl_interfaces.msg import ParameterType
@@ -32,30 +32,22 @@ TEXT_DARK = (7, 20, 34)
 pygame = None
 
 
-def extract_distance_and_count(msg: DepthGrid):
+def extract_intensity_and_active(msg: HapticGrid):
     rows = int(msg.rows)
     cols = int(msg.cols)
 
-    d = np.array([float(c.min_m) for c in msg.cells], dtype=np.float32)
-    cnt = np.array([int(c.count) for c in msg.cells], dtype=np.int32)
+    m = np.array([float(v) for v in msg.intensities], dtype=np.float32)
+    active = np.array([bool(v) for v in msg.active], dtype=bool)
 
-    if d.size != rows * cols:
+    if m.size != rows * cols or active.size != rows * cols:
         raise RuntimeError(
             f'Tamaño inconsistente: rows*cols={rows*cols} '
-            f'pero llegó {d.size}'
+            f'pero llegó intensities={m.size} active={active.size}'
         )
 
-    return d.reshape((rows, cols)), cnt.reshape((rows, cols))
-
-
-def distance_to_intensity(
-    d_m: np.ndarray,
-    z_min: float,
-    z_max: float,
-) -> np.ndarray:
-    d = np.clip(d_m, z_min, z_max)
-    intensity = (z_max - d) / (z_max - z_min) * 100.0
-    return intensity.astype(np.float32)
+    m = np.clip(m, 0.0, 100.0)
+    cnt = active.astype(np.int32)
+    return m.reshape((rows, cols)), cnt.reshape((rows, cols))
 
 
 def intensity_to_rgb(m: np.ndarray) -> np.ndarray:
@@ -115,9 +107,7 @@ class DepthGridHeatmapNode(Node):
     def __init__(self):
         super().__init__('depth_grid_heatmap')
 
-        self.declare_parameter('topic', '/perception/depth_grid')
-        self.declare_parameter('z_min', 0.6)
-        self.declare_parameter('z_max', 4.0)
+        self.declare_parameter('topic', '/perception/haptic_grid')
         self.declare_parameter('show_values', True)
         self.declare_parameter('invalid_text', '--')
         self.declare_parameter('refresh_hz', 20.0)
@@ -143,8 +133,6 @@ class DepthGridHeatmapNode(Node):
         self.declare_parameter('spatial_awareness_timeout_s', 0.75)
 
         self.topic = str(self.get_parameter('topic').value)
-        self.z_min = float(self.get_parameter('z_min').value)
-        self.z_max = float(self.get_parameter('z_max').value)
         self.show_values = bool(self.get_parameter('show_values').value)
         self.invalid_text = str(self.get_parameter('invalid_text').value)
         self.refresh_hz = float(self.get_parameter('refresh_hz').value)
@@ -208,7 +196,12 @@ class DepthGridHeatmapNode(Node):
             )
             self.render_backend = 'pygame'
 
-        self.sub = self.create_subscription(DepthGrid, self.topic, self.cb, 10)
+        self.sub = self.create_subscription(
+            HapticGrid,
+            self.topic,
+            self.cb_haptic_grid,
+            10,
+        )
         self.spatial_awareness_sub = self.create_subscription(
             SpatialAwareness,
             self.spatial_awareness_topic,
@@ -258,8 +251,8 @@ class DepthGridHeatmapNode(Node):
         self.timer = self.create_timer(period, self.on_timer)
 
         self.get_logger().info(
-            f'Escuchando {self.topic} | z_min={self.z_min}m '
-            f'z_max={self.z_max}m | refresh={self.refresh_hz}Hz '
+            f'Escuchando {self.topic} | intensity grid '
+            f'| refresh={self.refresh_hz}Hz '
             f'| backend={self.render_backend} '
             f'| flip_rows={self.flip_rows_for_display} '
             f'| pygame_view={self.pygame_view_mode} '
@@ -317,24 +310,12 @@ class DepthGridHeatmapNode(Node):
         except Exception:
             pass
 
-    def cb(self, msg: DepthGrid):
-        # Solo computa y guarda; NO dibuja acá
+    def cb_haptic_grid(self, msg: HapticGrid):
         try:
-            d_m, cnt = extract_distance_and_count(msg)
+            m, cnt = extract_intensity_and_active(msg)
         except Exception as e:
-            self.get_logger().error(f'No pude parsear DepthGrid: {e}')
+            self.get_logger().error(f'No pude parsear HapticGrid: {e}')
             return
-
-        # celdas sin puntos -> lejos
-        d_m = np.where(cnt > 0, d_m, self.z_max)
-        d_m = np.nan_to_num(
-            d_m,
-            nan=self.z_max,
-            posinf=self.z_max,
-            neginf=self.z_max,
-        )
-
-        m = distance_to_intensity(d_m, self.z_min, self.z_max)
 
         self.latest_m = m
         self.latest_cnt = cnt
