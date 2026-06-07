@@ -9,7 +9,7 @@ namespace {
 using spatial_awareness::OccupiedCell;
 using spatial_awareness::Pose2D;
 using spatial_awareness::RiskEvaluator;
-using spatial_awareness::Vec2;
+using nav_math::Vec2;
 
 std::vector<OccupiedCell> verticalCluster(float x, float z) {
   return {

@@ -16,6 +16,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(custom_interfaces REQUIRED)
+find_package(nav_math REQUIRED)
 
 add_library(spatial_awareness_lib STATIC
   src/risk_evaluator.cpp
@@ -24,13 +25,14 @@ target_include_directories(spatial_awareness_lib PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
+target_link_libraries(spatial_awareness_lib PUBLIC nav_math::nav_math)
 
 add_executable(spatial_awareness_node
   src/spatial_awareness_node.cpp
 )
 target_link_libraries(spatial_awareness_node spatial_awareness_lib)
 ament_target_dependencies(spatial_awareness_node
-  rclcpp nav_msgs geometry_msgs std_msgs visualization_msgs custom_interfaces)
+  rclcpp nav_msgs geometry_msgs std_msgs visualization_msgs custom_interfaces nav_math)
 
 install(TARGETS spatial_awareness_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}

@@ -1,22 +1,14 @@
 #pragma once
 
+#include <nav_math/nav_math.hpp>
+
 #include <array>
 #include <cstdint>
 #include <vector>
 
 namespace spatial_awareness {
 
-struct Vec2 {
-  float x{0.0f};
-  float z{0.0f};
-
-  Vec2 operator+(const Vec2& other) const noexcept;
-  Vec2 operator-(const Vec2& other) const noexcept;
-  Vec2 operator*(float scale) const noexcept;
-  float dot(const Vec2& other) const noexcept;
-  float norm() const noexcept;
-  Vec2 normalized() const noexcept;
-};
+using nav_math::Vec2;
 
 struct Pose2D {
   Vec2 position;

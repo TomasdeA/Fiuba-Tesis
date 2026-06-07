@@ -15,6 +15,7 @@
   <depend>std_msgs</depend>
   <depend>visualization_msgs</depend>
   <depend>custom_interfaces</depend>
+  <depend>nav_math</depend>
 
   <test_depend>ament_cmake_gtest</test_depend>
 

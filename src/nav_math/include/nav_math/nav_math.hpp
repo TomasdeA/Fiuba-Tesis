@@ -6,6 +6,7 @@
 // Biblioteca común: incluye todos los tipos de nav_math.
 // ─────────────────────────────────────────────────────────────────────────────
 
+#include "nav_math/vec2.hpp"
 #include "nav_math/vec3.hpp"
 #include "nav_math/quaternion.hpp"
 

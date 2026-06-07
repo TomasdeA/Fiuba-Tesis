@@ -242,9 +242,9 @@ class SpatialAwarenessNode : public rclcpp::Node {
     const Vec3 forward3 = internal_orientation.rotate({0.0f, 0.0f, 1.0f});
     pose_.position = {internal_position.x, internal_position.z};
     pose_.forward =
-        spatial_awareness::Vec2{forward3.x, forward3.z}.normalized();
+        nav_math::Vec2{forward3.x, forward3.z}.normalized();
 
-    spatial_awareness::Vec2 pose_velocity;
+    nav_math::Vec2 pose_velocity;
     bool pose_velocity_valid = false;
     if (has_previous_pose_) {
       const double dt = (stamp - previous_odom_stamp_).seconds();
@@ -266,12 +266,12 @@ class SpatialAwarenessNode : public rclcpp::Node {
                           static_cast<float>(message->twist.twist.linear.y),
                           static_cast<float>(message->twist.twist.linear.z)};
     const Vec3 twist_world = internal_orientation.rotate(twist_body);
-    const spatial_awareness::Vec2 twist_velocity{twist_world.x, twist_world.z};
+    const nav_math::Vec2 twist_velocity{twist_world.x, twist_world.z};
     const bool twist_valid = finite(twist_velocity.x) &&
                              finite(twist_velocity.z) &&
                              twist_velocity.norm() <= max_velocity_mps_;
 
-    spatial_awareness::Vec2 selected_velocity;
+    nav_math::Vec2 selected_velocity;
     bool selected_valid = false;
     if (twist_valid && pose_velocity_valid) {
       const float disagreement = (twist_velocity - pose_velocity).norm();
@@ -413,9 +413,9 @@ class SpatialAwarenessNode : public rclcpp::Node {
       const float aperture_rad =
           aperture_half_angle_deg_ * 3.14159265358979323846f / 180.0f;
       const auto forward = pose_.forward.normalized();
-      const auto rotate = [](const spatial_awareness::Vec2& vector,
+      const auto rotate = [](const nav_math::Vec2& vector,
                              float angle) {
-        return spatial_awareness::Vec2{
+        return nav_math::Vec2{
             vector.x * std::cos(angle) + vector.z * std::sin(angle),
             -vector.x * std::sin(angle) + vector.z * std::cos(angle)};
       };
@@ -542,7 +542,7 @@ class SpatialAwarenessNode : public rclcpp::Node {
   float cell_size_m_{0.10f};
   std::vector<spatial_awareness::OccupiedCell> occupied_cells_;
   spatial_awareness::Pose2D pose_;
-  spatial_awareness::Vec2 filtered_velocity_;
+  nav_math::Vec2 filtered_velocity_;
   spatial_awareness::ActiveDirections previous_active_directions_;
   Vec3 previous_position_;
   rclcpp::Time previous_odom_stamp_{0, 0, RCL_ROS_TIME};

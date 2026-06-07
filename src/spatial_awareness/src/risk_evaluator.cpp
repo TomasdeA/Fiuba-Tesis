@@ -25,29 +25,6 @@ std::int64_t cellKey(int x, int z) {
 
 }  // namespace
 
-Vec2 Vec2::operator+(const Vec2& other) const noexcept {
-  return {x + other.x, z + other.z};
-}
-
-Vec2 Vec2::operator-(const Vec2& other) const noexcept {
-  return {x - other.x, z - other.z};
-}
-
-Vec2 Vec2::operator*(float scale) const noexcept {
-  return {x * scale, z * scale};
-}
-
-float Vec2::dot(const Vec2& other) const noexcept {
-  return x * other.x + z * other.z;
-}
-
-float Vec2::norm() const noexcept { return std::sqrt(x * x + z * z); }
-
-Vec2 Vec2::normalized() const noexcept {
-  const float length = norm();
-  return length > 1e-6f ? (*this) * (1.0f / length) : Vec2{};
-}
-
 RiskEvaluator::RiskEvaluator() : RiskEvaluator(Config{}) {}
 
 RiskEvaluator::RiskEvaluator(const Config& config) : config_(config) {}
