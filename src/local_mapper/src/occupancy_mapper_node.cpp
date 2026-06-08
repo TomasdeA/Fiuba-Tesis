@@ -26,6 +26,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <rclcpp/rclcpp.hpp>
+#include <algorithm>
+#include <nav_math/nav_math.hpp>
 #include <limits>
 #include <cmath>
 
@@ -68,7 +70,9 @@ class OccupancyMapperNode : public rclcpp::Node {
     om_cfg.enable_raycasting = declare_parameter<bool>("occupancy_enable_raycasting", true);
     occupancy_mapper_ = std::make_unique<local_mapper::OccupancyMapper>(om_cfg);
 
-    publish_every_n_frames_ = declare_parameter<int>("occupancy_publish_every_n_frames", 15);
+    publish_every_n_frames_ =
+        std::max(1, static_cast<int>(declare_parameter<int>(
+                        "occupancy_publish_every_n_frames", 1)));
 
     // ── Publicador ───────────────────────────────────────────────────────────
     occupancy_pub_ = create_publisher<nav_msgs::msg::OccupancyGrid>(
@@ -154,10 +158,10 @@ class OccupancyMapperNode : public rclcpp::Node {
     const auto occ_pts  = decodeCloud(*obstacle_cloud);
     const auto free_pts = decodeCloud(*free_endpoints);
 
-    // ── Actualizar mapa ───────────────────────────────────────────────────────
+    // ── Actualizar mapa ──────────────────────────────────────────────────────
     occupancy_mapper_->update(occ_pts, sx, sz, free_pts);
 
-    // ── Publicar OccupancyGrid (throttled para no saturar RViz) ──────────────
+    // ── Publicar OccupancyGrid con la cadencia configurada ───────────────────
     ++occ_frame_count_;
     if (occupancy_pub_->get_subscription_count() > 0 &&
         occ_frame_count_ >= publish_every_n_frames_) {
@@ -176,12 +180,11 @@ class OccupancyMapperNode : public rclcpp::Node {
       // origin.y = altura del suelo publicada por depth_obstacle_filter.
       // La rotación de +90° en X alinea el plano XY del grid con el plano XZ
       // de odom (Y=abajo en convención óptica).
-      static constexpr double kHalfSqrt2 = 0.7071067811865476;
       occ_msg.info.origin.position.x = static_cast<double>(occupancy_mapper_->originX());
       occ_msg.info.origin.position.y = static_cast<double>(floor_height_m);
       occ_msg.info.origin.position.z = static_cast<double>(occupancy_mapper_->originZ());
-      occ_msg.info.origin.orientation.w = kHalfSqrt2;
-      occ_msg.info.origin.orientation.x = kHalfSqrt2;
+      occ_msg.info.origin.orientation.w = nav_math::kHalfSqrt2;
+      occ_msg.info.origin.orientation.x = nav_math::kHalfSqrt2;
       occ_msg.info.origin.orientation.y = 0.0;
       occ_msg.info.origin.orientation.z = 0.0;
 
@@ -215,8 +218,8 @@ class OccupancyMapperNode : public rclcpp::Node {
   float shift_accum_ci_ = 0.f;
   float shift_accum_cj_ = 0.f;
 
-  int occ_frame_count_         = 0;
-  int publish_every_n_frames_  = 15;
+  int occ_frame_count_        = 0;
+  int publish_every_n_frames_ = 1;
 };
 
 int main(int argc, char** argv) {

@@ -18,6 +18,7 @@ find_package(rcl_interfaces REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(custom_interfaces REQUIRED)
+find_package(nav_math REQUIRED)
 
 # ── depth_to_matrix (pipeline raw: imagen de profundidad → grilla) ──────────
 add_executable(depth_to_matrix
@@ -51,7 +52,8 @@ ament_target_dependencies(obstacle_grid_encoder
     rcl_interfaces
     sensor_msgs
     std_msgs
-    custom_interfaces)
+    custom_interfaces
+    nav_math)
 
 # Instalation
 install(TARGETS depth_to_matrix obstacle_grid_encoder
@@ -65,5 +67,5 @@ install(DIRECTORY config launch
   OPTIONAL)
 
 ament_export_include_directories(include)
-ament_export_dependencies(rclcpp rcl_interfaces sensor_msgs std_msgs)
+ament_export_dependencies(rclcpp rcl_interfaces sensor_msgs std_msgs nav_math)
 ament_package()

@@ -15,6 +15,7 @@
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
   <depend>custom_interfaces</depend>
+  <depend>nav_math</depend>
   
   <export>
     <build_type>ament_cmake</build_type>

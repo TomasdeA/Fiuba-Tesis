@@ -1,0 +1,30 @@
+spatial_awareness:
+  ros__parameters:
+    occupancy_grid_topic: "/local_mapper/occupancy_grid"
+    odometry_topic: "nav_odom"
+    aperture_state_topic: "/perception/depth_grid/aperture_state_deg"
+    output_topic: "/spatial_awareness/collision_risk"
+    debug_markers_topic: "/spatial_awareness/debug/markers"
+    publish_debug_markers: true
+
+    occupancy_threshold: 65
+    min_cluster_cells: 3
+    min_distance_m: 0.20
+    max_distance_m: 1.00
+    body_radius_m: 0.20
+    min_motion_speed_mps: 0.10
+    min_closing_speed_mps: 0.10
+    closing_speed_hysteresis_mps: 0.03
+    velocity_filter_alpha: 0.25
+    max_velocity_mps: 3.0
+    twist_consistency_tolerance_mps: 0.35
+    ttc_min_s: 0.25
+    ttc_max_s: 2.00
+    fov_margin_deg: 3.0
+    rear_half_angle_deg: 45.0
+    default_aperture_deg: 45.0
+
+    odom_timeout_s: 0.40
+    map_timeout_s: 0.40
+    publish_rate_hz: 10.0
+    intensity_slew_rate_per_s: 200.0

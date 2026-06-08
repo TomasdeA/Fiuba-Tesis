@@ -52,6 +52,7 @@
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <geometry_msgs/msg/point_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <nav_math/nav_math.hpp>
 #include <std_msgs/msg/float32.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 #include <time.h>
@@ -282,8 +283,8 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     if (plane.n_inliers < height_min_ground_inliers_) return false;
 
     const float cos_tilt = std::abs(plane.ny);
-    const float tilt_deg = std::acos(std::clamp(cos_tilt, 0.0f, 1.0f))
-                           * 180.0f / static_cast<float>(M_PI);
+    const float tilt_deg =
+        nav_math::rad2deg(std::acos(std::clamp(cos_tilt, 0.0f, 1.0f)));
     return tilt_deg <= height_max_ground_tilt_deg_;
   }
 
@@ -291,8 +292,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     const auto& plane = ground_estimator_->groundPlane();
     const float cos_tilt = std::abs(plane.ny);
     const float tilt_deg = plane.valid
-        ? std::acos(std::clamp(cos_tilt, 0.0f, 1.0f)) *
-              180.0f / static_cast<float>(M_PI)
+        ? nav_math::rad2deg(std::acos(std::clamp(cos_tilt, 0.0f, 1.0f)))
         : 90.0f;
     RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
         "[camera_height] conservada: piso poco confiable valid=%d quality=%.3f inliers=%d tilt=%.1fdeg",

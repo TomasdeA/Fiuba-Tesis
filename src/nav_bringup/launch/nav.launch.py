@@ -117,6 +117,7 @@ def generate_launch_description():
     use_visual_odometry = LaunchConfiguration('use_visual_odometry')
     orientation_source = LaunchConfiguration('orientation_source')
     use_local_mapper   = LaunchConfiguration('use_local_mapper')
+    use_spatial_awareness = LaunchConfiguration('use_spatial_awareness')
     debug              = LaunchConfiguration('debug')
     use_viz            = LaunchConfiguration('use_viz')
     use_rviz           = LaunchConfiguration('use_rviz')
@@ -340,6 +341,24 @@ def generate_launch_description():
         condition=IfCondition(PythonExpression(["'", pipeline_mode, "' == 'filtered'"])),
     )
 
+    # ── Spatial awareness: mapa + RTAB-Map → riesgo fuera del FOV ───────────
+    spatial_awareness = Node(
+        package='spatial_awareness',
+        executable='spatial_awareness_node',
+        name='spatial_awareness',
+        output='screen',
+        parameters=[PathJoinSubstitution([
+            FindPackageShare('spatial_awareness'),
+            'config',
+            'params.yaml',
+        ])],
+        condition=IfCondition(PythonExpression([
+            "'", use_spatial_awareness, "' == 'true' and '",
+            use_local_mapper, "' == 'true' and '",
+            orientation_source, "' == 'rtabmap_odom'"
+        ])),
+    )
+
     # ── Haptic grid generator ─────────────────────────────
     #haptic_grid = Node(
     #    package='haptic_grid_generator',
@@ -484,6 +503,14 @@ def generate_launch_description():
             description='Launch local_mapper (occupancy grid builder)',
         ),
         DeclareLaunchArgument(
+            'use_spatial_awareness',
+            default_value='false',
+            description=(
+                'Launch spatial_awareness. Requires use_local_mapper=true '
+                'and orientation_source=rtabmap_odom.'
+            ),
+        ),
+        DeclareLaunchArgument(
             'debug',
             default_value='false',
             description='Publish non-essential debug topics (raw/aligned/ground/ceiling clouds)',
@@ -562,6 +589,7 @@ def generate_launch_description():
         local_mapper,
         depth_to_matrix,
         obstacle_grid,
+        spatial_awareness,
         #haptic_grid,
         hw_manager,
         viz,

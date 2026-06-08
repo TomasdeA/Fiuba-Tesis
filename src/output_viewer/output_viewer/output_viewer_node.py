@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from custom_interfaces.msg import DepthGrid
+from custom_interfaces.msg import SpatialAwareness
 from rcl_interfaces.msg import Parameter
 from rcl_interfaces.msg import ParameterType
 from rcl_interfaces.msg import ParameterValue
@@ -134,6 +135,12 @@ class DepthGridHeatmapNode(Node):
         self.declare_parameter('h_aperture_deg', 45.0)
         self.declare_parameter('h_aperture_min_deg', 15.0)
         self.declare_parameter('h_aperture_max_deg', 70.0)
+        self.declare_parameter(
+            'spatial_awareness_topic',
+            '/spatial_awareness/collision_risk',
+        )
+        self.declare_parameter('show_spatial_awareness', True)
+        self.declare_parameter('spatial_awareness_timeout_s', 0.75)
 
         self.topic = str(self.get_parameter('topic').value)
         self.z_min = float(self.get_parameter('z_min').value)
@@ -177,6 +184,15 @@ class DepthGridHeatmapNode(Node):
         self.h_aperture_max_deg = float(
             self.get_parameter('h_aperture_max_deg').value
         )
+        self.spatial_awareness_topic = str(
+            self.get_parameter('spatial_awareness_topic').value
+        )
+        self.show_spatial_awareness = bool(
+            self.get_parameter('show_spatial_awareness').value
+        )
+        self.spatial_awareness_timeout_s = float(
+            self.get_parameter('spatial_awareness_timeout_s').value
+        )
         self.h_aperture_deg = float(np.clip(
             self.h_aperture_deg,
             self.h_aperture_min_deg,
@@ -193,11 +209,24 @@ class DepthGridHeatmapNode(Node):
             self.render_backend = 'pygame'
 
         self.sub = self.create_subscription(DepthGrid, self.topic, self.cb, 10)
+        self.spatial_awareness_sub = self.create_subscription(
+            SpatialAwareness,
+            self.spatial_awareness_topic,
+            self.cb_spatial_awareness,
+            10,
+        )
 
         # Estado compartido (actualizado por el callback)
         self.latest_m = None     # intensidad 0..100
         self.latest_cnt = None   # count
         self.latest_shape = None
+        self.spatial_awareness = {
+            'left': 0.0,
+            'right': 0.0,
+            'rear': 0.0,
+        }
+        self.spatial_awareness_last_rx_s = 0.0
+        self.spatial_awareness_valid = False
         self._dirty = False
         self._dragging_aperture = False
         self._last_aperture_send_s = 0.0
@@ -234,7 +263,8 @@ class DepthGridHeatmapNode(Node):
             f'| backend={self.render_backend} '
             f'| flip_rows={self.flip_rows_for_display} '
             f'| pygame_view={self.pygame_view_mode} '
-            f'| aperture={self.h_aperture_deg:.1f}deg'
+            f'| aperture={self.h_aperture_deg:.1f}deg '
+            f'| spatial_awareness={self.spatial_awareness_topic}'
         )
 
     def _setup_matplotlib(self):
@@ -310,6 +340,19 @@ class DepthGridHeatmapNode(Node):
         self.latest_cnt = cnt
         self.latest_shape = m.shape
         self._dirty = True
+
+    def cb_spatial_awareness(self, msg: SpatialAwareness):
+        self.spatial_awareness_valid = bool(msg.valid)
+        self.spatial_awareness['left'] = self._risk_intensity(msg.left)
+        self.spatial_awareness['right'] = self._risk_intensity(msg.right)
+        self.spatial_awareness['rear'] = self._risk_intensity(msg.rear)
+        self.spatial_awareness_last_rx_s = time.monotonic()
+        self._dirty = True
+
+    def _risk_intensity(self, risk) -> float:
+        if not self.spatial_awareness_valid or not risk.active:
+            return 0.0
+        return float(np.clip(risk.intensity, 0.0, 100.0))
 
     def _clear_texts(self):
         for t in self.texts:
@@ -480,6 +523,7 @@ class DepthGridHeatmapNode(Node):
             center=True,
             glow=True,
         )
+        self._draw_spatial_awareness_indicators()
         pygame.display.flip()
 
     def _draw_text(
@@ -716,6 +760,71 @@ class DepthGridHeatmapNode(Node):
         )
         pygame.draw.circle(self.screen, HOT, highlight, max(1, radius // 7))
 
+    def _spatial_awareness_is_fresh(self):
+        if not self.spatial_awareness_valid:
+            return False
+        age_s = time.monotonic() - self.spatial_awareness_last_rx_s
+        return age_s <= max(0.05, self.spatial_awareness_timeout_s)
+
+    def _draw_spatial_awareness_indicators(self, plot_rect=None):
+        if not self.show_spatial_awareness:
+            return
+
+        width, height = self.screen.get_size()
+        fresh = self._spatial_awareness_is_fresh()
+        radius = 20
+        if plot_rect is None:
+            y = height - 118
+            positions = {
+                'LEFT': (width // 2 - 96, y),
+                'REAR': (width // 2, y),
+                'RIGHT': (width // 2 + 96, y),
+            }
+        else:
+            side_y = plot_rect.centery
+            bottom_y = min(height - 78, plot_rect.bottom + 58)
+            positions = {
+                'LEFT': (max(70, plot_rect.left - 62), side_y),
+                'REAR': (plot_rect.centerx, bottom_y),
+                'RIGHT': (min(width - 70, plot_rect.right + 62), side_y),
+            }
+
+        self._draw_text(
+            'SPATIAL',
+            (positions['REAR'][0], positions['REAR'][1] - radius - 34),
+            self.small_font,
+            FG if fresh else INVALID_FG,
+            center=True,
+        )
+
+        for label in ('LEFT', 'REAR', 'RIGHT'):
+            intensity = self.spatial_awareness[label.lower()] if fresh else 0.0
+            color = tuple(
+                intensity_to_neon_rgb(
+                    np.array([[intensity]], dtype=np.float32)
+                )[0, 0]
+            )
+            if not fresh:
+                color = PANEL_EDGE_DIM
+
+            center = positions[label]
+            self._draw_signal_dot(center, radius, color, intensity)
+            self._draw_text(
+                f'{int(round(intensity))}',
+                center,
+                self.value_font,
+                TEXT_DARK if intensity >= 56 else HOT,
+                center=True,
+                shadow=intensity < 56,
+            )
+            self._draw_text(
+                label,
+                (center[0], center[1] + radius + 18),
+                self.small_font,
+                FG if fresh else INVALID_FG,
+                center=True,
+            )
+
     def _draw_heatmap_curved(self, m: np.ndarray, cnt: np.ndarray):
         rows, cols = m.shape
         width, height = self.screen.get_size()
@@ -857,6 +966,7 @@ class DepthGridHeatmapNode(Node):
             FG,
         )
 
+        self._draw_spatial_awareness_indicators(plot_rect)
         pygame.display.flip()
         self.clock.tick(max(1.0, self.refresh_hz))
 
@@ -1012,6 +1122,7 @@ class DepthGridHeatmapNode(Node):
             FG,
         )
 
+        self._draw_spatial_awareness_indicators(plot_rect)
         pygame.display.flip()
         self.clock.tick(max(1.0, self.refresh_hz))
 
