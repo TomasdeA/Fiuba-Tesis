@@ -6,11 +6,6 @@ depth_obstacle_filter:
     depth_image_topic: "/camera/camera/depth/image_rect_raw"
     camera_info_topic: "/camera/camera/depth/camera_info"
     imu_topic:         "/camera/camera/accel/sample"
-    # Fuente de orientación para alinear a gravedad:
-    #   nav_odom    = usa /nav_odom publicado por nav_odometry (default actual)
-    #   imu_legacy  = usa acelerómetro + GravityAligner legacy
-    orientation_source: "nav_odom"
-
     # Rango de profundidad válido (metros) — definido en nav_bringup/config/sensor_range.yaml
     # Submuestreo de píxeles antes de proyectar depth a nube.
     # 1 = resolución completa; 2 = procesa 1/4 de los píxeles; 3 = 1/9.

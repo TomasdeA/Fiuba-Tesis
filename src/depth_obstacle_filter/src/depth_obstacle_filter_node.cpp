@@ -3,17 +3,14 @@
 //
 // Suscribe:  depth/image  (sensor_msgs/Image, 16UC1)
 //            depth/camera_info (sensor_msgs/CameraInfo)
-//            nav_odom     (nav_msgs/Odometry) — orientación VIO de nav_odometry
+//            imu          (sensor_msgs/Imu) — acelerómetro para alinear a gravedad
 //
 // Publica:
 //   /depth_obstacle_filter/obstacle_cloud  — obstáculos locales en gravity_aligned_frame
 //                                            para obstacle_grid_encoder/heatmap
 //
 // Publica sólo con publish_local_mapper_interface=true:
-//   /depth_obstacle_filter/obstacle_cloud_odom — obstáculos en frame odom
-//   /depth_obstacle_filter/free_endpoints  — endpoints de rayos libres en frame odom
-//   /depth_obstacle_filter/sensor_pos      — posición de la cámara en odom (PointStamped)
-//                                            point.y = altura estimada del suelo (m)
+//   /depth_obstacle_filter/free_endpoints  — endpoints de rayos libres en gravity_aligned_frame
 //
 // Publica sólo con debug=true:
 //   /depth_obstacle_filter/debug/depth_cloud   — nube cruda en camera_depth_optical_frame
@@ -25,14 +22,10 @@
 //   /depth_obstacle_filter/camera_height       — altura de cámara sobre el suelo (Float32)
 //
 // Publica TFs:
-//   odom → gravity_aligned_frame          (yaw + traslación desde nav_odom)
 //   gravity_aligned_frame → camera_depth_optical_frame  (roll + pitch)
 //
-// Los tres topics de interface (obstacle_cloud_odom, free_endpoints, sensor_pos)
-// comparten siempre el mismo header.stamp (= stamp del frame de profundidad).
-// local_mapper usa ExactTimeSynchronizer sobre los tres para garantizar
-// sincronización perfecta: cada actualización del mapa usa exactamente
-// los obstáculos y la posición del sensor del mismo instante.
+// Los topics locales de interface comparten el mismo header.stamp (= stamp del
+// frame de profundidad). local_mapper se encarga de combinarlos con odometría.
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <rclcpp/rclcpp.hpp>
@@ -50,8 +43,6 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/msg/point_field.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
-#include <geometry_msgs/msg/point_stamped.hpp>
-#include <nav_msgs/msg/odometry.hpp>
 #include <nav_math/nav_math.hpp>
 #include <std_msgs/msg/float32.hpp>
 #include <tf2_ros/transform_broadcaster.h>
@@ -103,16 +94,6 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     debug_enabled_ = declare_parameter<bool>("debug", false);
     publish_local_mapper_interface_ =
         declare_parameter<bool>("publish_local_mapper_interface", false);
-    orientation_source_ =
-        declare_parameter<std::string>("orientation_source", "nav_odom");
-    if (orientation_source_ != "nav_odom" &&
-        orientation_source_ != "rtabmap_odom" &&
-        orientation_source_ != "imu_legacy") {
-      RCLCPP_WARN(get_logger(),
-          "orientation_source='%s' invalido; usando nav_odom",
-          orientation_source_.c_str());
-      orientation_source_ = "nav_odom";
-    }
     height_filter_alpha_ = static_cast<float>(
         declare_parameter<double>("height_filter_alpha", 0.03));
     height_max_step_m_ = static_cast<float>(
@@ -130,11 +111,9 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     async_obstacle_cloud_publish_ =
         declare_parameter<bool>("async_obstacle_cloud_publish", true);
 
-    if (useLegacyImuOrientation()) {
-      depth_obstacle_filter::ImuFilter::Config imu_cfg;
-      imu_filter_ = std::make_unique<depth_obstacle_filter::ImuFilter>(
-          imu_cfg, get_logger(), get_clock());
-    }
+    depth_obstacle_filter::ImuFilter::Config imu_cfg;
+    imu_filter_ = std::make_unique<depth_obstacle_filter::ImuFilter>(
+        imu_cfg, get_logger(), get_clock());
 
     // ── TF broadcaster ───────────────────────────────────────────────────────
     tf_br_ = std::make_shared<tf2_ros::TransformBroadcaster>(this);
@@ -147,14 +126,8 @@ class DepthObstacleFilterNode : public rclcpp::Node {
         "/depth_obstacle_filter/camera_height", rclcpp::QoS(1).transient_local());
 
     if (publish_local_mapper_interface_) {
-      obstacle_odom_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
-          "/depth_obstacle_filter/obstacle_cloud_odom", 10);
-
       free_endpoints_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
           "/depth_obstacle_filter/free_endpoints", 10);
-
-      sensor_pos_pub_ = create_publisher<geometry_msgs::msg::PointStamped>(
-          "/depth_obstacle_filter/sensor_pos", 10);
     }
 
     if (debug_enabled_) {
@@ -180,22 +153,15 @@ class DepthObstacleFilterNode : public rclcpp::Node {
         "depth/camera_info", rclcpp::SensorDataQoS(),
         std::bind(&DepthObstacleFilterNode::onCameraInfo, this, _1));
 
-    if (useNavOdomOrientation()) {
-      odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-          "nav_odom", rclcpp::QoS(1).reliable(),
-          std::bind(&DepthObstacleFilterNode::onOdom, this, _1));
-    } else {
-      imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(
-          "imu", rclcpp::SensorDataQoS(),
-          std::bind(&DepthObstacleFilterNode::onImu, this, _1));
-    }
+    imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(
+        "imu", rclcpp::SensorDataQoS(),
+        std::bind(&DepthObstacleFilterNode::onImu, this, _1));
 
     RCLCPP_INFO(get_logger(),
-        "DepthObstacleFilterNode listo. range=[%.2f, %.2f]m debug=%s local_mapper_interface=%s orientation_source=%s",
+        "DepthObstacleFilterNode listo. range=[%.2f, %.2f]m debug=%s local_mapper_interface=%s",
         range_min_m_, range_max_m_,
         debug_enabled_ ? "true" : "false",
-        publish_local_mapper_interface_ ? "true" : "false",
-        orientation_source_.c_str());
+        publish_local_mapper_interface_ ? "true" : "false");
     last_perf_log_ = get_clock()->now();
 
     if (async_obstacle_cloud_publish_) {
@@ -216,14 +182,6 @@ class DepthObstacleFilterNode : public rclcpp::Node {
   }
 
  private:
-  bool useNavOdomOrientation() const {
-    return orientation_source_ == "nav_odom" || orientation_source_ == "rtabmap_odom";
-  }
-
-  bool useLegacyImuOrientation() const {
-    return orientation_source_ == "imu_legacy";
-  }
-
   static double elapsedMs(const struct timespec& start) {
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
@@ -250,7 +208,6 @@ class DepthObstacleFilterNode : public rclcpp::Node {
 
     if (!height_filter_initialized_) {
       filtered_camera_height_m_ = raw_height_m;
-      floor_height_m_ = filtered_camera_height_m_;
       height_filter_initialized_ = true;
       return true;
     }
@@ -272,7 +229,6 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     }
 
     filtered_camera_height_m_ += limited_step;
-    floor_height_m_ = filtered_camera_height_m_;
     return true;
   }
 
@@ -325,21 +281,6 @@ class DepthObstacleFilterNode : public rclcpp::Node {
   }
 
   void publishOrientationTransforms(const rclcpp::Time& stamp) {
-    // ── TF 1: odom → gravity_aligned_frame ───────────────────────────────────
-    geometry_msgs::msg::TransformStamped tf_gaf;
-    tf_gaf.header.stamp    = stamp;
-    tf_gaf.header.frame_id = "odom";
-    tf_gaf.child_frame_id  = "gravity_aligned_frame";
-    tf_gaf.transform.translation.x = odom_pos_x_;
-    tf_gaf.transform.translation.y = odom_pos_y_;
-    tf_gaf.transform.translation.z = odom_pos_z_;
-    tf_gaf.transform.rotation.w = q_yaw_yd_cached_.w;
-    tf_gaf.transform.rotation.x = q_yaw_yd_cached_.x;
-    tf_gaf.transform.rotation.y = q_yaw_yd_cached_.y;
-    tf_gaf.transform.rotation.z = q_yaw_yd_cached_.z;
-    tf_br_->sendTransform(tf_gaf);
-
-    // ── TF 2: gravity_aligned_frame → camera_depth_optical_frame ─────────────
     geometry_msgs::msg::TransformStamped tf_cam;
     tf_cam.header.stamp    = stamp;
     tf_cam.header.frame_id = "gravity_aligned_frame";
@@ -351,7 +292,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     tf_br_->sendTransform(tf_cam);
   }
 
-  // ── LEGACY: GravityAligner (E4) ──────────────────────────────────────────
+  // ── Orientación por acelerómetro ─────────────────────────────────────────
   void onImu(const sensor_msgs::msg::Imu::SharedPtr msg) {
     if (!imu_filter_) return;
 
@@ -374,75 +315,6 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     if (q_rp_.w < 0.f) {
       q_rp_ = {-q_rp_.w, -q_rp_.x, -q_rp_.y, -q_rp_.z};
     }
-    q_ = q_rp_;
-    q_yaw_yd_cached_ = {1.f, 0.f, 0.f, 0.f};
-    odom_pos_x_ = 0.0f;
-    odom_pos_y_ = 0.0f;
-    odom_pos_z_ = 0.0f;
-  }
-
-  // ── Orientación VIO (fuente principal) ───────────────────────────────────
-  // Calcula q_rp_ (roll+pitch) y q_yaw_yd_cached_ a partir de nav_odom.
-  // Publica dos TFs:
-  //   1) odom → gravity_aligned_frame  (posición + solo yaw)
-  //   2) gravity_aligned_frame → camera_depth_optical_frame  (roll+pitch)
-  void onOdom(const nav_msgs::msg::Odometry::SharedPtr msg) {
-    const nav_math::Quaternion q_msg = nav_math::Quaternion{
-        static_cast<float>(msg->pose.pose.orientation.w),
-        static_cast<float>(msg->pose.pose.orientation.x),
-        static_cast<float>(msg->pose.pose.orientation.y),
-        static_cast<float>(msg->pose.pose.orientation.z)}.normalized();
-
-    float pos_x = static_cast<float>(msg->pose.pose.position.x);
-    float pos_y = static_cast<float>(msg->pose.pose.position.y);
-    float pos_z = static_cast<float>(msg->pose.pose.position.z);
-
-    if (orientation_source_ == "rtabmap_odom") {
-      // RTAB-Map publica el mundo según REP-103:
-      //   X adelante, Y izquierda, Z arriba.
-      // El pipeline interno usa la convención óptica:
-      //   X derecha, Y abajo, Z adelante.
-      //
-      // Cambio de base mundo ROS -> mundo interno:
-      //   p_int = {-p_ros.y, -p_ros.z, p_ros.x}
-      //   q_int = q_ros_to_internal * q_ros
-      //
-      // q_ros_to_internal corresponde a la matriz:
-      //   [ 0 -1  0 ]
-      //   [ 0  0 -1 ]
-      //   [ 1  0  0 ]
-      static const nav_math::Quaternion q_ros_to_internal{
-          0.5f, 0.5f, -0.5f, 0.5f};
-      q_ = (q_ros_to_internal * q_msg).normalized();
-      odom_pos_x_ = -pos_y;
-      odom_pos_y_ = -pos_z;
-      odom_pos_z_ =  pos_x;
-    } else {
-      q_ = q_msg;
-      odom_pos_x_ = pos_x;
-      odom_pos_y_ = pos_y;
-      odom_pos_z_ = pos_z;
-    }
-
-    // ── Yaw en Y-down ─────────────────────────────────────────────────────────
-    const nav_math::Vec3 fwd = q_.rotate({0.f, 0.f, 1.f});
-    const float fwd_xz = std::sqrt(fwd.x * fwd.x + fwd.z * fwd.z);
-    nav_math::Quaternion q_yaw_yd{1.f, 0.f, 0.f, 0.f};
-    if (fwd_xz > 1e-4f) {
-      const float yaw = std::atan2(fwd.x / fwd_xz, fwd.z / fwd_xz);
-      const float hy  = yaw * 0.5f;
-      q_yaw_yd = {std::cos(hy), 0.f, std::sin(hy), 0.f};
-    }
-
-    // ── Roll+pitch sin yaw ────────────────────────────────────────────────────
-    q_rp_ = (q_yaw_yd.conjugate() * q_).normalized();
-    if (q_rp_.w < 0.f) {
-      q_rp_ = {-q_rp_.w, -q_rp_.x, -q_rp_.y, -q_rp_.z};
-    }
-
-    q_yaw_yd_cached_ = q_yaw_yd;
-
-    publishOrientationTransforms(msg->header.stamp);
   }
 
   void onDepth(const sensor_msgs::msg::Image::SharedPtr msg) {
@@ -454,9 +326,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
       return;
     }
 
-    if (useLegacyImuOrientation()) {
-      publishOrientationTransforms(msg->header.stamp);
-    }
+    publishOrientationTransforms(msg->header.stamp);
 
     // Salida anticipada si nadie escucha (ahorra CPU en pruebas sin suscriptores).
     const bool has_obstacle_subs =
@@ -464,12 +334,8 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     const bool has_height_subs =
         camera_height_pub_->get_subscription_count() > 0;
     const bool has_local_mapper_subs = publish_local_mapper_interface_ &&
-        ((obstacle_odom_pub_ &&
-          obstacle_odom_pub_->get_subscription_count() > 0) ||
-         (free_endpoints_pub_ &&
-          free_endpoints_pub_->get_subscription_count() > 0) ||
-         (sensor_pos_pub_ &&
-          sensor_pos_pub_->get_subscription_count() > 0));
+        free_endpoints_pub_ &&
+        free_endpoints_pub_->get_subscription_count() > 0;
     const bool has_debug_subs = debug_enabled_ &&
         ((cloud_pub_ && cloud_pub_->get_subscription_count() > 0) ||
          (raw_cloud_pub_ && raw_cloud_pub_->get_subscription_count() > 0) ||
@@ -546,7 +412,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     // ── Estimación del suelo y publicación de nubes de salida ─────────────────
     {
       if (perf_log_enabled_) clock_gettime(CLOCK_MONOTONIC, &t_stage);
-      // Rotar a gravity_aligned_frame con la orientación VIO cacheada.
+      // Rotar a gravity_aligned_frame con la orientación de IMU cacheada.
       std::vector<depth_obstacle_filter::GroundEstimator::Point3D> ge_cloud;
       ge_cloud.reserve(valid.size());
       for (const auto& pt : valid) {
@@ -590,46 +456,25 @@ class DepthObstacleFilterNode : public rclcpp::Node {
         if (perf_log_enabled_) t_obstacle_publish_ms = elapsedMs(t_stage);
       }
 
-      // ── Construir y publicar nubes en frame odom ──────────────────────────
-      // Los tres topics comparten el mismo stamp → ExactTimeSynchronizer en
-      // local_mapper garantiza que cada actualización del mapa usa exactamente
-      // los datos del mismo frame de profundidad.
+      // ── Construir y publicar endpoints libres locales ─────────────────────
       {
         if (perf_log_enabled_) clock_gettime(CLOCK_MONOTONIC, &t_stage);
-        std_msgs::msg::Header odom_hdr;
-        odom_hdr.stamp    = msg->header.stamp;
-        odom_hdr.frame_id = "odom";
 
         if (publish_local_mapper_interface_) {
-          // Obstáculos → frame odom (preserva Y=altura para visualización 3D)
-          const auto& obs_idx = ground_estimator_->obstacleIndices();
-          std::vector<depth_obstacle_filter::DepthProjector::Point3D> obs_odom;
-          obs_odom.reserve(obs_idx.size());
-          for (int idx : obs_idx) {
-            const auto& p = ge_cloud[idx];
-            const nav_math::Vec3 p_odom =
-                q_yaw_yd_cached_.rotate({p.x, 0.f, p.z});
-            obs_odom.push_back({p_odom.x + odom_pos_x_, p.y,
-                                p_odom.z + odom_pos_z_});
-          }
-          publishCloud(obstacle_odom_pub_, odom_hdr, obs_odom);
-        }
+          std_msgs::msg::Header local_hdr;
+          local_hdr.stamp    = msg->header.stamp;
+          local_hdr.frame_id = "gravity_aligned_frame";
 
-        if (publish_local_mapper_interface_) {
-          // Endpoints de rayos libres → frame odom (suelo + techo submuestreado
+          // Endpoints de rayos libres → frame local (suelo + techo submuestreado
           // 1/4, más puntos más allá del rango submuestreados 1/16).
-          // En odom frame: Y=0 (solo XZ importa para el mapa 2D).
-          std::vector<depth_obstacle_filter::DepthProjector::Point3D> free_odom;
+          std::vector<depth_obstacle_filter::DepthProjector::Point3D> free_local;
 
           const auto addFreeFromIndices =
               [&](const std::vector<int>& indices, int stride) {
                 for (int k = 0; k < static_cast<int>(indices.size());
                      k += stride) {
                   const auto& p = ge_cloud[indices[k]];
-                  const nav_math::Vec3 p_odom =
-                      q_yaw_yd_cached_.rotate({p.x, 0.f, p.z});
-                  free_odom.push_back({p_odom.x + odom_pos_x_, 0.f,
-                                       p_odom.z + odom_pos_z_});
+                  free_local.push_back({p.x, 0.f, p.z});
                 }
               };
           addFreeFromIndices(ground_estimator_->groundIndices(),   4);
@@ -639,24 +484,9 @@ class DepthObstacleFilterNode : public rclcpp::Node {
             const float scale = range_max_m_ / pt.z;
             const nav_math::Vec3 p_gaf =
                 q_rp_.rotate({pt.x * scale, pt.y * scale, pt.z * scale});
-            const nav_math::Vec3 p_odom =
-                q_yaw_yd_cached_.rotate({p_gaf.x, 0.f, p_gaf.z});
-            free_odom.push_back(
-                {p_odom.x + odom_pos_x_, 0.f, p_odom.z + odom_pos_z_});
+            free_local.push_back({p_gaf.x, 0.f, p_gaf.z});
           }
-          publishCloud(free_endpoints_pub_, odom_hdr, free_odom);
-
-          // Posición del sensor en odom.
-          // point.x/z = posición XZ en odom.
-          // point.y   = altura del suelo sobre la cámara (m); 0 si no detectado.
-          //             local_mapper la usa para colocar el OccupancyGrid a la
-          //             altura correcta del suelo en RViz.
-          geometry_msgs::msg::PointStamped sensor_pos_msg;
-          sensor_pos_msg.header = odom_hdr;
-          sensor_pos_msg.point.x = static_cast<double>(odom_pos_x_);
-          sensor_pos_msg.point.y = static_cast<double>(floor_height_m_);
-          sensor_pos_msg.point.z = static_cast<double>(odom_pos_z_);
-          sensor_pos_pub_->publish(sensor_pos_msg);
+          publishCloud(free_endpoints_pub_, local_hdr, free_local);
         }
 
         if (perf_log_enabled_) {
@@ -936,13 +766,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
   std::unique_ptr<depth_obstacle_filter::ImuFilter>        imu_filter_;
   std::unique_ptr<depth_obstacle_filter::GroundEstimator>  ground_estimator_;
   depth_obstacle_filter::GravityAligner                    aligner_;
-  nav_math::Quaternion                            q_{1.0f, 0.0f, 0.0f, 0.0f};
   nav_math::Quaternion                            q_rp_{1.0f, 0.0f, 0.0f, 0.0f};
-  nav_math::Quaternion                            q_yaw_yd_cached_{1.0f, 0.0f, 0.0f, 0.0f};
-  float                                           odom_pos_x_{0.0f};
-  float                                           odom_pos_y_{0.0f};
-  float                                           odom_pos_z_{0.0f};
-  float                                           floor_height_m_{0.0f};
   float                                           filtered_camera_height_m_{0.0f};
   float                                           last_published_height_{0.0f};
   bool                                            height_filter_initialized_{false};
@@ -951,15 +775,12 @@ class DepthObstacleFilterNode : public rclcpp::Node {
 
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr      depth_sub_;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr info_sub_;
-  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr      odom_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr        imu_sub_;
 
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr    obstacle_pub_;
 
-  // Interface hacia local_mapper (tres topics sincronizados por stamp)
-  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr    obstacle_odom_pub_;
+  // Interface hacia local_mapper
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr    free_endpoints_pub_;
-  rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr sensor_pos_pub_;
 
   // Debug / visualización
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_pub_;
@@ -974,7 +795,6 @@ class DepthObstacleFilterNode : public rclcpp::Node {
   bool perf_log_enabled_ = false;
   bool debug_enabled_ = false;
   bool publish_local_mapper_interface_ = false;
-  std::string orientation_source_ = "nav_odom";
   double perf_log_period_s_ = 5.0;
   int empty_obstacle_warn_every_ = 5;
   int empty_obstacle_streak_ = 0;

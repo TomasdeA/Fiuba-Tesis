@@ -12,10 +12,12 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
-find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(message_filters REQUIRED)
 find_package(nav_math REQUIRED)
+find_package(tf2_ros REQUIRED)
 
 # ── Librería interna ───────────────────────────────────────────────────────────
 add_library(local_mapper_lib STATIC
@@ -37,7 +39,7 @@ add_executable(occupancy_mapper_node
 )
 target_link_libraries(occupancy_mapper_node local_mapper_lib)
 ament_target_dependencies(occupancy_mapper_node
-  rclcpp sensor_msgs geometry_msgs nav_msgs message_filters nav_math)
+  rclcpp sensor_msgs geometry_msgs nav_msgs std_msgs message_filters nav_math tf2_ros)
 
 # ── Instalación ────────────────────────────────────────────────────────────────
 install(TARGETS occupancy_mapper_node

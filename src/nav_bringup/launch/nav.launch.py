@@ -1,6 +1,7 @@
+"""Launch the nav_mapper perception, mapping, visualization, and hardware stack."""
+
 import glob
 import os
-import yaml
 
 from launch import LaunchDescription
 from launch.actions import (
@@ -22,10 +23,13 @@ from launch.substitutions import (
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
+import yaml
 
 
 def _resolve_bag_path(context, *args, **kwargs):
-    """Return the bag play action with a startup delay.
+    """
+    Return the bag play action with a startup delay.
+
     Guards: only runs when use_bag=true AND use_realsense=false.
     """
     if context.launch_configurations.get('use_realsense', 'true').lower() == 'true':
@@ -55,7 +59,7 @@ def _resolve_bag_path(context, *args, **kwargs):
 
 
 def _make_realsense_node(context, *args, **kwargs):
-    """Create the RealSense node with streams matched to the odometry mode."""
+    """Create the RealSense node with streams matched to the selected stack."""
     if context.launch_configurations.get('use_realsense', 'true').lower() != 'true':
         return []
 
@@ -65,13 +69,9 @@ def _make_realsense_node(context, *args, **kwargs):
     except Exception:
         return [LogInfo(msg='realsense2_camera not found — skipping camera launch')]
 
-    use_rtabmap_odom = context.launch_configurations.get(
-        'orientation_source', 'nav_odom').lower() == 'rtabmap_odom'
-    use_visual = (
-        context.launch_configurations.get(
-            'use_visual_odometry', 'false').lower() == 'true'
-        or use_rtabmap_odom
-    )
+    use_local_mapper = context.launch_configurations.get(
+        'use_local_mapper', 'false').lower() == 'true'
+    use_visual = use_local_mapper
     depth_profile = context.launch_configurations.get(
         'realsense_depth_profile', '640x480x15')
     color_profile = context.launch_configurations.get(
@@ -93,7 +93,7 @@ def _make_realsense_node(context, *args, **kwargs):
     if use_visual:
         params['rgb_camera.color_profile'] = color_profile
 
-    mode = 'RGBD visual odometry' if use_visual else 'IMU-only odometry'
+    mode = 'RGBD odometry enabled' if use_visual else 'depth+IMU only'
     return [
         LogInfo(msg=f'RealSense stream profile: {mode}, depth={depth_profile}'),
         Node(
@@ -110,26 +110,26 @@ def _make_realsense_node(context, *args, **kwargs):
 
 
 def generate_launch_description():
+    """Create the nav_mapper launch description."""
     # ── Launch arguments ──────────────────────────────────
-    use_realsense      = LaunchConfiguration('use_realsense')
-    use_hw             = LaunchConfiguration('use_hw')
-    use_perception     = LaunchConfiguration('use_perception')
-    use_visual_odometry = LaunchConfiguration('use_visual_odometry')
-    orientation_source = LaunchConfiguration('orientation_source')
-    use_local_mapper   = LaunchConfiguration('use_local_mapper')
+    use_realsense = LaunchConfiguration('use_realsense')
+    use_hw = LaunchConfiguration('use_hw')
+    use_perception = LaunchConfiguration('use_perception')
+    odom_source = LaunchConfiguration('odom_source')
+    use_local_mapper = LaunchConfiguration('use_local_mapper')
     use_spatial_awareness = LaunchConfiguration('use_spatial_awareness')
-    debug              = LaunchConfiguration('debug')
-    use_viz            = LaunchConfiguration('use_viz')
-    use_rviz           = LaunchConfiguration('use_rviz')
-    bag_record         = LaunchConfiguration('bag_record')
-    hw_port            = LaunchConfiguration('hw_port')
-    pipeline_mode      = LaunchConfiguration('pipeline_mode')
-    bag_path           = LaunchConfiguration('bag_path')
-    use_bag            = LaunchConfiguration('use_bag')
-    performance        = LaunchConfiguration('performance')
-    monitor_signal     = LaunchConfiguration('monitor_signal')
+    debug = LaunchConfiguration('debug')
+    use_viz = LaunchConfiguration('use_viz')
+    use_rviz = LaunchConfiguration('use_rviz')
+    bag_record = LaunchConfiguration('bag_record')
+    hw_port = LaunchConfiguration('hw_port')
+    pipeline_mode = LaunchConfiguration('pipeline_mode')
+    use_bag = LaunchConfiguration('use_bag')
+    performance = LaunchConfiguration('performance')
+    monitor_signal = LaunchConfiguration('monitor_signal')
     use_rtabmap_odom = PythonExpression([
-        "'", orientation_source, "' == 'rtabmap_odom'"
+        "'", use_local_mapper, "' == 'true' and '",
+        odom_source, "' == 'rtabmap_odom'"
     ])
 
     # ── Config file paths ─────────────────────────────────
@@ -186,8 +186,8 @@ def generate_launch_description():
     ])
 
     # ── RealSense camera (optional — needs the HW) ───────
-    # Created at launch runtime so use_visual_odometry can select the streams:
-    # IMU-only keeps color/alignment disabled; visual odometry enables RGBD.
+    # Created at launch runtime so local_mapper can request RGB-D odometry
+    # streams. Without local_mapper, color/alignment stay disabled.
     realsense = OpaqueFunction(function=_make_realsense_node)
 
     # ── IMU orientation for RTAB-Map ─────────────────────
@@ -215,8 +215,8 @@ def generate_launch_description():
     )
 
     # ── RTAB-Map RGB-D odometry ──────────────────────────
-    # Publishes nav_msgs/Odometry remapped to nav_odom so depth_obstacle_filter
-    # can consume it through the same interface as the internal nav_odometry.
+    # Publishes nav_msgs/Odometry remapped to nav_odom for the local_mapper
+    # interface emitted by depth_obstacle_filter.
     rtabmap_odometry = Node(
         package='rtabmap_odom',
         executable='rgbd_odometry',
@@ -258,25 +258,24 @@ def generate_launch_description():
     # ── nav_odometry: IMU + estéreo → nav_msgs/Odometry ──
     # Fusiona giroscopio, acelerómetro y tracker estéreo infrarrojo
     # con un filtro complementario de Mahony.
-    # Publica nav_odom (nav_msgs/Odometry) consumido por depth_obstacle_filter
-    # y local_mapper.
+    # Publica nav_odom (nav_msgs/Odometry) para la interfaz de local_mapper.
     nav_odometry = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(nav_odometry_launch),
         launch_arguments={
             'sensor_depth_min_m': str(_depth_min_m),
             'sensor_depth_max_m': str(_depth_max_m),
-            'use_visual_odometry': use_visual_odometry,
             'performance': performance,
         }.items(),
         condition=IfCondition(PythonExpression([
             "'", use_perception, "' == 'true' and '", pipeline_mode,
-            "' == 'filtered' and '", orientation_source, "' == 'nav_odom'"
+            "' == 'filtered' and '", use_local_mapper,
+            "' == 'true' and '", odom_source, "' == 'nav_odom'"
         ])),
     )
 
-    # ── depth_obstacle_filter: depth + odometry → obstacle_cloud (odom frame) ──
+    # ── depth_obstacle_filter: depth + IMU → obstacle_cloud ──
     # Proyecta la imagen de profundidad, alinea con gravedad, detecta el suelo
-    # (RANSAC) y publica obstacle_cloud + free_endpoints + sensor_pos.
+    # (RANSAC) y publica obstacle_cloud + free_endpoints locales.
     depth_obstacle_filter = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(depth_obstacle_filter_launch),
         launch_arguments={
@@ -284,7 +283,6 @@ def generate_launch_description():
             'sensor_depth_max_m': str(_depth_max_m),
             'debug': debug,
             'publish_local_mapper_interface': use_local_mapper,
-            'orientation_source': orientation_source,
             'performance': performance,
         }.items(),
         condition=IfCondition(PythonExpression([
@@ -292,13 +290,14 @@ def generate_launch_description():
         ])),
     )
 
-    # ── local_mapper: obstacle_cloud → occupancy_grid ─────────────────────────
-    # Consume los tres topics de depth_obstacle_filter (sincronizados por stamp)
-    # y construye el mapa de ocupación 2D incremental en frame odom.
+    # ── local_mapper: obstacle_cloud + odometry → occupancy_grid ─────────────
+    # Consume observaciones locales de depth_obstacle_filter y nav_odom para
+    # construir el mapa de ocupación 2D incremental en frame odom.
     local_mapper = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(local_mapper_launch),
         launch_arguments={
             'sensor_depth_max_m': str(_depth_max_m),
+            'odom_source': odom_source,
         }.items(),
         condition=IfCondition(use_local_mapper),
     )
@@ -355,7 +354,7 @@ def generate_launch_description():
         condition=IfCondition(PythonExpression([
             "'", use_spatial_awareness, "' == 'true' and '",
             use_local_mapper, "' == 'true' and '",
-            orientation_source, "' == 'rtabmap_odom'"
+            odom_source, "' == 'rtabmap_odom'"
         ])),
     )
 
@@ -461,7 +460,9 @@ def generate_launch_description():
             PythonLaunchDescriptionSource(
                 _os.path.join(hw_manager_pkg_share, 'launch', 'gpio_button.launch.py')),
             condition=IfCondition(PythonExpression([
-                "'", use_hw, "' == 'true' and '", use_realsense, "' == 'true' and '", bag_record, "' == 'true'"
+                "'", use_hw, "' == 'true' and '",
+                use_realsense, "' == 'true' and '",
+                bag_record, "' == 'true'"
             ])),
         ))
     except Exception:
@@ -483,7 +484,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'realsense_color_profile',
             default_value='640x480x15',
-            description='RealSense color profile WIDTHxHEIGHTxFPS when visual odometry is enabled',
+            description='RealSense color profile WIDTHxHEIGHTxFPS when RGB-D odometry is enabled',
         ),
         DeclareLaunchArgument(
             'use_hw',
@@ -493,22 +494,20 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'use_perception',
             default_value='false',
-            description='Launch nav_odometry and depth_obstacle_filter (disable on viewer-only machines)',
-        ),
-        DeclareLaunchArgument(
-            'use_visual_odometry',
-            default_value='false',
-            description='Habilitar tracker RGBD en nav_odometry. Si false, solo IMU inercial (roll/pitch).',
-        ),
-        DeclareLaunchArgument(
-            'orientation_source',
-            default_value='nav_odom',
-            choices=['nav_odom', 'imu_legacy', 'rtabmap_odom'],
             description=(
-                "Fuente de orientación/odometría para depth_obstacle_filter: "
+                'Launch perception nodes '
+                '(disable on viewer-only machines)'
+            ),
+        ),
+        DeclareLaunchArgument(
+            'odom_source',
+            default_value='nav_odom',
+            choices=['nav_odom', 'rtabmap_odom'],
+            description=(
+                'Fuente de odometría para local_mapper: '
                 "'nav_odom' usa nav_odometry interno; "
-                "'imu_legacy' usa GravityAligner; "
-                "'rtabmap_odom' usa rtabmap rgbd_odometry"
+                "'rtabmap_odom' usa rtabmap rgbd_odometry. "
+                'depth_obstacle_filter siempre alinea a gravedad con IMU.'
             ),
         ),
         DeclareLaunchArgument(
@@ -521,7 +520,7 @@ def generate_launch_description():
             default_value='false',
             description=(
                 'Launch spatial_awareness. Requires use_local_mapper=true '
-                'and orientation_source=rtabmap_odom.'
+                'and odom_source=rtabmap_odom.'
             ),
         ),
         DeclareLaunchArgument(
@@ -559,7 +558,7 @@ def generate_launch_description():
             default_value='raw',
             choices=['raw', 'filtered', 'none'],
             description=(
-                "Modo de la pipeline de encodificación de grilla: "
+                'Modo de la pipeline de encodificación de grilla: '
                 "'raw' usa depth_to_matrix (imagen de profundidad directa), "
                 "'filtered' usa obstacle_grid_encoder (ObstacleCloud con ground removal), "
                 "'none' no lanza ningún encoder de grilla"

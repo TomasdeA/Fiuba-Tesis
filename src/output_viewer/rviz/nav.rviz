@@ -157,7 +157,7 @@ Visualization Manager:
 
   Global Options:
     Background Color: 40; 40; 40
-    Fixed Frame: odom
+    Fixed Frame: gravity_aligned_frame
     Frame Rate: 30
 
   Tools:
