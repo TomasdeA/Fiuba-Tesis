@@ -52,8 +52,6 @@ def generate_launch_description():
                     'debug': context.launch_configurations.get('debug', 'false').lower() == 'true',
                     'publish_local_mapper_interface': context.launch_configurations.get(
                         'publish_local_mapper_interface', 'false').lower() == 'true',
-                    'orientation_source': context.launch_configurations.get(
-                        'orientation_source', 'nav_odom'),
                     'perf_log_enabled': context.launch_configurations.get(
                         'performance', 'true').lower() == 'true',
                 },
@@ -86,13 +84,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'publish_local_mapper_interface',
             default_value='false',
-            description='Publicar free_endpoints y sensor_pos para local_mapper',
-        ),
-        DeclareLaunchArgument(
-            'orientation_source',
-            default_value='nav_odom',
-            choices=['nav_odom', 'imu_legacy', 'rtabmap_odom'],
-            description='Fuente de orientación: nav_odom, rtabmap_odom o acelerómetro legacy',
+            description='Publicar free_endpoints locales para local_mapper',
         ),
         DeclareLaunchArgument(
             'performance',

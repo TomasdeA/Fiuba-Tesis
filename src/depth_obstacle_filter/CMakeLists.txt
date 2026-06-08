@@ -15,7 +15,6 @@ find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
-find_package(nav_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 
 # ── Librería interna ───────────────────────────────────────────────────────────
@@ -46,7 +45,7 @@ add_executable(depth_obstacle_filter_node
 )
 target_link_libraries(depth_obstacle_filter_node depth_obstacle_filter_lib)
 ament_target_dependencies(depth_obstacle_filter_node
-  rclcpp sensor_msgs std_msgs geometry_msgs nav_msgs tf2_ros)
+  rclcpp sensor_msgs std_msgs geometry_msgs tf2_ros)
 
 # ── Instalación ────────────────────────────────────────────────────────────────
 install(TARGETS depth_obstacle_filter_node

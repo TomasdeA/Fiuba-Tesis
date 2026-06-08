@@ -34,7 +34,11 @@ def generate_launch_description():
             name='local_mapper',
             parameters=[
                 config_path,
-                {'occupancy_max_range_m': depth_max},
+                {
+                    'occupancy_max_range_m': depth_max,
+                    'odom_source': context.launch_configurations.get(
+                        'odom_source', 'nav_odom'),
+                },
             ],
             output='screen',
         )
@@ -45,6 +49,12 @@ def generate_launch_description():
             'sensor_depth_max_m',
             default_value=str(_default_max),
             description='Distancia máxima válida del sensor [m] (fuente: sensor_range.yaml)',
+        ),
+        DeclareLaunchArgument(
+            'odom_source',
+            default_value='nav_odom',
+            choices=['nav_odom', 'rtabmap_odom'],
+            description='Fuente de odometría para transformar observaciones locales a odom',
         ),
         OpaqueFunction(function=_make_node),
     ])

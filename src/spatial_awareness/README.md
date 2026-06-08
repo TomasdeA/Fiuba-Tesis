@@ -51,7 +51,7 @@ Si el mapa o la odometría están vencidos, el mensaje se publica con
 ros2 launch nav_bringup nav.launch.py \
   pipeline_mode:=filtered \
   use_perception:=true \
-  orientation_source:=rtabmap_odom \
+  odom_source:=rtabmap_odom \
   use_local_mapper:=true \
   use_spatial_awareness:=true
 ```
