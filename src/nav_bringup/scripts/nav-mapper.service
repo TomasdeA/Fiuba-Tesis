@@ -25,7 +25,7 @@ Environment="WS_PATH=/home/tomasdea/Tesis/develop/Fiuba-Tesis"
 ExecStart=/usr/bin/docker compose \
   -f ${WS_PATH}/docker-compose.raspi.yml \
   run --rm dev \
-  bash -lc 'exec ros2 launch nav_bringup nav.launch.py use_realsense:=true use_hw:=true hw_port:=/dev/ttyACM0 pipeline_mode:=filtered use_perception:=true use_visual_odometry:=false use_local_mapper:=false use_rviz:=false use_viz:=false performance:=false debug:=false monitor_signal:=false realsense_depth_profile:=424x240x6 realsense_color_profile:=424x240x6 use_extended_grid:=true'
+  bash -lc 'exec ros2 launch nav_bringup nav.launch.py use_realsense:=true use_hw:=true hw_port:=/dev/ttyACM0 pipeline_mode:=filtered use_perception:=true odom_source:=rtabmap_odom use_local_mapper:=true use_rviz:=false use_viz:=false performance:=false debug:=false monitor_signal:=false realsense_depth_profile:=424x240x6 realsense_color_profile:=424x240x6 use_spatial_awareness:=true'
 
 # ── Política de reinicio ───────────────────────────────────────────────────
 # Se reinicia automáticamente si el proceso termina con error.

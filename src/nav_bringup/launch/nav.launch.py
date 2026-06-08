@@ -69,15 +69,9 @@ def _make_realsense_node(context, *args, **kwargs):
     except Exception:
         return [LogInfo(msg='realsense2_camera not found — skipping camera launch')]
 
-    use_rtabmap_odom = context.launch_configurations.get(
-        'odom_source', 'nav_odom').lower() == 'rtabmap_odom'
     use_local_mapper = context.launch_configurations.get(
         'use_local_mapper', 'false').lower() == 'true'
-    use_visual = (
-        context.launch_configurations.get(
-            'use_visual_odometry', 'false').lower() == 'true'
-        or (use_local_mapper and use_rtabmap_odom)
-    )
+    use_visual = use_local_mapper
     depth_profile = context.launch_configurations.get(
         'realsense_depth_profile', '640x480x15')
     color_profile = context.launch_configurations.get(
@@ -99,7 +93,7 @@ def _make_realsense_node(context, *args, **kwargs):
     if use_visual:
         params['rgb_camera.color_profile'] = color_profile
 
-    mode = 'RGBD visual odometry' if use_visual else 'IMU-only odometry'
+    mode = 'RGBD odometry enabled' if use_visual else 'depth+IMU only'
     return [
         LogInfo(msg=f'RealSense stream profile: {mode}, depth={depth_profile}'),
         Node(
@@ -121,7 +115,6 @@ def generate_launch_description():
     use_realsense = LaunchConfiguration('use_realsense')
     use_hw = LaunchConfiguration('use_hw')
     use_perception = LaunchConfiguration('use_perception')
-    use_visual_odometry = LaunchConfiguration('use_visual_odometry')
     odom_source = LaunchConfiguration('odom_source')
     use_local_mapper = LaunchConfiguration('use_local_mapper')
     use_spatial_awareness = LaunchConfiguration('use_spatial_awareness')
@@ -193,8 +186,8 @@ def generate_launch_description():
     ])
 
     # ── RealSense camera (optional — needs the HW) ───────
-    # Created at launch runtime so use_visual_odometry can select the streams:
-    # IMU-only keeps color/alignment disabled; visual odometry enables RGBD.
+    # Created at launch runtime so local_mapper can request RGB-D odometry
+    # streams. Without local_mapper, color/alignment stay disabled.
     realsense = OpaqueFunction(function=_make_realsense_node)
 
     # ── IMU orientation for RTAB-Map ─────────────────────
@@ -271,7 +264,6 @@ def generate_launch_description():
         launch_arguments={
             'sensor_depth_min_m': str(_depth_min_m),
             'sensor_depth_max_m': str(_depth_max_m),
-            'use_visual_odometry': use_visual_odometry,
             'performance': performance,
         }.items(),
         condition=IfCondition(PythonExpression([
@@ -492,7 +484,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'realsense_color_profile',
             default_value='640x480x15',
-            description='RealSense color profile WIDTHxHEIGHTxFPS when visual odometry is enabled',
+            description='RealSense color profile WIDTHxHEIGHTxFPS when RGB-D odometry is enabled',
         ),
         DeclareLaunchArgument(
             'use_hw',
@@ -503,16 +495,8 @@ def generate_launch_description():
             'use_perception',
             default_value='false',
             description=(
-                'Launch nav_odometry and depth_obstacle_filter '
+                'Launch perception nodes '
                 '(disable on viewer-only machines)'
-            ),
-        ),
-        DeclareLaunchArgument(
-            'use_visual_odometry',
-            default_value='false',
-            description=(
-                'Habilitar tracker RGBD en nav_odometry. Si false, '
-                'solo IMU inercial (roll/pitch).'
             ),
         ),
         DeclareLaunchArgument(

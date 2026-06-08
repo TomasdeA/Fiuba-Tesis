@@ -100,8 +100,8 @@ private:
         declare_parameter<double>("accel_static_threshold_mps2", 0.5);
         declare_parameter<bool>("perf_log_enabled", false);
 
-        // Visual odometry (RGBD tracker). Si false, solo corre IMU inercial.
-        declare_parameter<bool>("use_visual_odometry", false);
+        // Visual odometry (RGBD tracker). El launch lo mantiene habilitado.
+        declare_parameter<bool>("use_visual_odometry", true);
 
         // Tracker estéreo
         declare_parameter<int>   ("fast_threshold",        20);
