@@ -8,7 +8,7 @@
 #include <vector>
 
 #include "rclcpp/rclcpp.hpp"
-#include "custom_interfaces/msg/depth_grid.hpp"
+#include "custom_interfaces/msg/haptic_grid.hpp"
 
 #include <fcntl.h>
 #include <termios.h>
@@ -40,39 +40,18 @@ static int clamp_int(int v, int lo, int hi)
     return std::max(lo, std::min(v, hi));
 }
 
-// Cerca (<= z_min) -> 100
-// Lejos (>= z_max) -> 0
-static int distance_to_duty(float d_m, float z_min_m, float z_max_m)
-{
-    if (!(d_m > 0.0f))
-    { // NaN o <=0
-        return 0;
-    }
-    if (d_m <= z_min_m)
-        return 100;
-    if (d_m >= z_max_m)
-        return 0;
-
-    float t = (z_max_m - d_m) / (z_max_m - z_min_m); // 0..1
-    int duty = static_cast<int>(t * 100.0f + 0.5f);
-    return clamp_int(duty, 0, 100);
-}
-
-class DepthGridToUart : public rclcpp::Node
+class HapticGridToUart : public rclcpp::Node
 {
 public:
-    DepthGridToUart() : Node("depth_grid_to_uart")
+    HapticGridToUart() : Node("haptic_grid_to_uart")
     {
         // UART params
         port_ = this->declare_parameter<std::string>("port", "/dev/serial0");
         baud_ = this->declare_parameter<int>("baud", 115200);
 
-        // ROS topic
-        topic_ = this->declare_parameter<std::string>("topic", "/perception/depth_grid");
+        // ROS topic: grilla final de intensidades 0..100.
+        topic_ = this->declare_parameter<std::string>("topic", "/perception/haptic_grid");
 
-        // Distance->duty mapping
-        z_min_m_ = static_cast<float>(this->declare_parameter<double>("z_min_m", 0.25));
-        z_max_m_ = static_cast<float>(this->declare_parameter<double>("z_max_m", 0.8));
         duty_max_ = this->declare_parameter<int>("duty_max", 70);
 
         // Throttling (para no saturar UART)
@@ -82,9 +61,9 @@ public:
         expected_rows_ = this->declare_parameter<int>("expected_rows", 5);
         expected_cols_ = this->declare_parameter<int>("expected_cols", 10);
 
-        sub_ = this->create_subscription<custom_interfaces::msg::DepthGrid>(
+        haptic_sub_ = this->create_subscription<custom_interfaces::msg::HapticGrid>(
             topic_, 10,
-            std::bind(&DepthGridToUart::on_grid, this, std::placeholders::_1));
+            std::bind(&HapticGridToUart::on_haptic_grid, this, std::placeholders::_1));
 
         // Intentar abrir UART; si falla, reintentar cada 2s
         if (!try_open_uart())
@@ -92,18 +71,18 @@ public:
             RCLCPP_WARN(get_logger(), "UART %s no disponible. Reintentando cada 2s...", port_.c_str());
             reconnect_timer_ = this->create_wall_timer(
                 std::chrono::seconds(2),
-                std::bind(&DepthGridToUart::reconnect_cb, this));
+                std::bind(&HapticGridToUart::reconnect_cb, this));
         }
         else
         {
             RCLCPP_INFO(
                 get_logger(),
-                "DepthGridToUart listo. Sub=%s UART=%s@%d grid=%dx%d z_min=%.2f z_max=%.2f",
-                topic_.c_str(), port_.c_str(), baud_, expected_rows_, expected_cols_, z_min_m_, z_max_m_);
+                "HapticGridToUart listo. Sub=%s UART=%s@%d grid=%dx%d duty_max=%d",
+                topic_.c_str(), port_.c_str(), baud_, expected_rows_, expected_cols_, duty_max_);
         }
     }
 
-    ~DepthGridToUart() override
+    ~HapticGridToUart() override
     {
         if (fd_ >= 0)
         {
@@ -219,8 +198,8 @@ private:
             reconnect_timer_.reset();
             RCLCPP_INFO(
                 get_logger(),
-                "DepthGridToUart listo. Sub=%s UART=%s@%d grid=%dx%d z_min=%.2f z_max=%.2f",
-                topic_.c_str(), port_.c_str(), baud_, expected_rows_, expected_cols_, z_min_m_, z_max_m_);
+                "HapticGridToUart listo. Sub=%s UART=%s@%d grid=%dx%d duty_max=%d",
+                topic_.c_str(), port_.c_str(), baud_, expected_rows_, expected_cols_, duty_max_);
         }
         else
         {
@@ -229,41 +208,49 @@ private:
         }
     }
 
-    void on_grid(const custom_interfaces::msg::DepthGrid::SharedPtr msg)
+    bool should_send_now()
     {
         if (fd_ < 0)
-            return; // UART aun no disponible
+            return false; // UART aun no disponible
 
         // throttle
         const auto now = this->now();
         if ((now - last_send_time_).nanoseconds() <
             static_cast<int64_t>(send_period_ms_) * 1000000LL)
         {
-            return;
+            return false;
         }
         last_send_time_ = now;
+        return true;
+    }
 
-        const int rows = msg->rows;
-        const int cols = msg->cols;
-
+    bool validate_shape(int rows, int cols, std::size_t size)
+    {
         if (rows != expected_rows_ || cols != expected_cols_)
         {
             RCLCPP_WARN_THROTTLE(
                 get_logger(), *get_clock(), 2000,
                 "Grid shape inesperada: %dx%d (esperada %dx%d). No envio.",
                 rows, cols, expected_rows_, expected_cols_);
-            return;
+            return false;
         }
 
         const int expected = rows * cols; // 50 para 5x10
-        if (static_cast<int>(msg->cells.size()) < expected)
+        if (static_cast<int>(size) < expected)
         {
             RCLCPP_WARN_THROTTLE(
                 get_logger(), *get_clock(), 2000,
-                "cells.size()=%zu < %d. No envio.",
-                msg->cells.size(), expected);
-            return;
+                "grid.size()=%zu < %d. No envio.",
+                size, expected);
+            return false;
         }
+
+        return true;
+    }
+
+    void send_duties(const std::vector<int>& duties, int rows, int cols)
+    {
+        const int expected = rows * cols;
 
         // Protocolo UART:
         // "M d0 d1 ... d49\n"
@@ -279,17 +266,8 @@ private:
         {
             for (int r = 0; r < rows; ++r)
             {
-                const auto &cell = msg->cells[static_cast<size_t>(r * cols + c)];
-
-                int duty = 0;
-                if (cell.count > 0)
-                {
-                    duty = distance_to_duty(cell.min_m, z_min_m_, z_max_m_);
-                    duty = duty * duty_max_ / 100;
-                }
-
                 line += " ";
-                line += std::to_string(duty);
+                line += std::to_string(duties[static_cast<std::size_t>(r * cols + c)]);
             }
         }
 
@@ -305,16 +283,41 @@ private:
         }
 
         RCLCPP_DEBUG_THROTTLE(get_logger(), *get_clock(), 1000, "TX -> %s", line.c_str());
+    }
 
+    void on_haptic_grid(const custom_interfaces::msg::HapticGrid::SharedPtr msg)
+    {
+        if (!should_send_now())
+            return;
+
+        const int rows = msg->rows;
+        const int cols = msg->cols;
+        if (!validate_shape(rows, cols, msg->intensities.size()) ||
+            !validate_shape(rows, cols, msg->active.size()))
+        {
+            return;
+        }
+
+        const int expected = rows * cols;
+        std::vector<int> duties(static_cast<std::size_t>(expected), 0);
+        for (int i = 0; i < expected; ++i)
+        {
+            const auto idx = static_cast<std::size_t>(i);
+            if (msg->active[idx])
+            {
+                const int intensity = clamp_int(
+                    static_cast<int>(msg->intensities[idx] + 0.5f), 0, 100);
+                duties[idx] = intensity * duty_max_ / 100;
+            }
+        }
+
+        send_duties(duties, rows, cols);
     }
 
     // Params
     std::string port_;
     int baud_{115200};
     std::string topic_;
-
-    float z_min_m_{0.25f};
-    float z_max_m_{0.80f};
 
     int send_period_ms_{50};
     int expected_rows_{5};
@@ -326,7 +329,7 @@ private:
     int fd_{-1};
 
     // ROS
-    rclcpp::Subscription<custom_interfaces::msg::DepthGrid>::SharedPtr sub_;
+    rclcpp::Subscription<custom_interfaces::msg::HapticGrid>::SharedPtr haptic_sub_;
     rclcpp::TimerBase::SharedPtr reconnect_timer_;
     rclcpp::Time last_send_time_{0, 0, RCL_ROS_TIME};
 };
@@ -334,7 +337,7 @@ private:
 int main(int argc, char *argv[])
 {
     rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<DepthGridToUart>());
+    rclcpp::spin(std::make_shared<HapticGridToUart>());
     rclcpp::shutdown();
     return 0;
 }

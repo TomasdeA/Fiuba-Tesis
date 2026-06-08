@@ -1,0 +1,15 @@
+haptic_grid_generator:
+  ros__parameters:
+    input_grid_topic: "/perception/depth_grid"
+    spatial_awareness_topic: "/spatial_awareness/collision_risk"
+    output_grid_topic: "/perception/haptic_grid"
+
+    # Rango usado para convertir DepthGrid en intensidad 0..100.
+    # Este nodo centraliza la lógica distancia -> intensidad.
+    z_min_m: 0.25
+    z_max_m: 3.0
+
+    spatial_timeout_s: 0.75
+    left_column_count: 1
+    right_column_count: 1
+    rear_column_count: 2

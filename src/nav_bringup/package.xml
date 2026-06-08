@@ -16,8 +16,8 @@
   <exec_depend>rtabmap_odom</exec_depend>
   <exec_depend>local_mapper</exec_depend>
   <exec_depend>spatial_awareness</exec_depend>
+  <exec_depend>haptic_grid_generator</exec_depend>
   <exec_depend>depth_grid_encoder</exec_depend>
-  <!-- <exec_depend>haptic_grid_generator</exec_depend> -->
   <exec_depend>hardware_manager</exec_depend>
   <exec_depend>output_viewer</exec_depend>
 

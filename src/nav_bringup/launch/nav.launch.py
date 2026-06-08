@@ -155,11 +155,11 @@ def generate_launch_description():
     _depth_min_m = float(_sr['depth_min_m'])
     _depth_max_m = float(_sr['depth_max_m'])
 
-    #haptic_grid_cfg = PathJoinSubstitution([
-    #    FindPackageShare('haptic_grid_generator'),
-    #    'config',
-    #    'params.yaml',
-    #])
+    haptic_grid_cfg = PathJoinSubstitution([
+        FindPackageShare('haptic_grid_generator'),
+        'config',
+        'params.yaml',
+    ])
 
     nav_rviz = PathJoinSubstitution([
         FindPackageShare('output_viewer'),
@@ -359,14 +359,23 @@ def generate_launch_description():
         ])),
     )
 
-    # ── Haptic grid generator ─────────────────────────────
-    #haptic_grid = Node(
-    #    package='haptic_grid_generator',
-    #    executable='haptic_grid_generator_node',
-    #    name='haptic_grid_generator',
-    #    parameters=[haptic_grid_cfg],
-    #    output='screen',
-    #)
+    # ── Haptic grid generator: DepthGrid → HapticGrid de intensidades ───────
+    # Siempre corre cuando hay encoder de grilla. Si spatial_awareness esta
+    # activo y publica riesgo valido, fusiona esas intensidades en el grid.
+    haptic_grid = Node(
+        package='haptic_grid_generator',
+        executable='haptic_grid_generator_node',
+        name='haptic_grid_generator',
+        parameters=[
+            haptic_grid_cfg,
+            {
+                'z_min_m': _depth_min_m,
+                'z_max_m': 3.0,
+            },
+        ],
+        output='screen',
+        condition=IfCondition(PythonExpression(["'", pipeline_mode, "' != 'none'"])),
+    )
 
     # ── Hardware manager (UART → motors) ──────────────────
     hw_manager = Node(
@@ -375,7 +384,11 @@ def generate_launch_description():
         name='hardware_manager',
         output='screen',
         condition=IfCondition(use_hw),
-        parameters=[{'port': hw_port, 'z_max_m': 3.0, 'duty_max': 70}],
+        parameters=[{
+            'port': hw_port,
+            'topic': '/perception/haptic_grid',
+            'duty_max': 70,
+        }],
     )
 
     # ── Output viewer (heatmap) ───────────────────────────
@@ -386,6 +399,7 @@ def generate_launch_description():
         output='screen',
         condition=IfCondition(use_viz),
         parameters=[{
+            'topic': '/perception/haptic_grid',
             'flip_rows_for_display': False,
             'h_aperture_deg': 45.0,
             'h_aperture_min_deg': 15.0,
@@ -590,7 +604,7 @@ def generate_launch_description():
         depth_to_matrix,
         obstacle_grid,
         spatial_awareness,
-        #haptic_grid,
+        haptic_grid,
         hw_manager,
         viz,
         signal_monitor,
