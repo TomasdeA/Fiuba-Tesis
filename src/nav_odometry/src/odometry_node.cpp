@@ -32,25 +32,33 @@ using std::placeholders::_1;
 // ─────────────────────────────────────────────────────────────────────────────
 // Empaquetado de estado en nav_msgs/Odometry.
 //
-// La convención interna del pipeline (Y abajo, Z adelante — óptica del D435i)
-// se publica sin conversión: el único consumidor actual (local_mapper) opera
-// en la misma convención, por lo que la conversión es innecesaria.
-//
-// FUTURO: si se integran nodos externos ROS (Nav2, rtabmap, etc.) que requieran
-// REP-103 (Z arriba, X adelante), agregar la conversión de marco aquí:
-//   q_ros = q_fix * q_int * q_fix_inv,  q_fix = {w=0, x=1, y=0, z=0}
-//   p_ros = {p.x, -p.y, -p.z}
+// La convención interna del pipeline es óptica (X derecha, Y abajo, Z adelante).
+// Por defecto se conserva para compatibilidad con local_mapper. El modo
+// output_rep103 convierte la salida a X adelante, Y izquierda, Z arriba para
+// integrarla con nodos ROS externos como robot_localization y RTAB-Map.
 // ─────────────────────────────────────────────────────────────────────────────
 static nav_msgs::msg::Odometry packOdometry(
     const nav_odometry::OdometryState& state,
     const std::string& odom_frame,
     const std::string& child_frame,
-    const rclcpp::Time& stamp)
+    const rclcpp::Time& stamp,
+    bool output_rep103)
 {
-    const nav_odometry::Vec3&       p = state.pose.position;
-    const nav_odometry::Quaternion& q = state.pose.orientation;
-    const nav_odometry::Vec3&       v = state.linear_velocity;
-    const nav_odometry::Vec3&       w = state.angular_velocity;
+    nav_odometry::Vec3 p = state.pose.position;
+    nav_odometry::Quaternion q = state.pose.orientation;
+    nav_odometry::Vec3 v = state.linear_velocity;
+    nav_odometry::Vec3 w = state.angular_velocity;
+
+    if (output_rep103) {
+        p = {p.z, -p.x, -p.y};
+        v = {v.z, -v.x, -v.y};
+        w = {w.z, -w.x, -w.y};
+
+        // Inverse of local_mapper's REP-103 -> internal optical conversion.
+        const nav_odometry::Quaternion q_internal_to_ros{
+            0.5f, -0.5f, 0.5f, -0.5f};
+        q = (q_internal_to_ros * q).normalized();
+    }
 
     nav_msgs::msg::Odometry msg;
     msg.header.stamp    = stamp;
@@ -122,6 +130,8 @@ private:
         // Frames y topics
         declare_parameter<std::string>("odom_frame",  "odom");
         declare_parameter<std::string>("child_frame", "camera_link");
+        declare_parameter<bool>("publish_tf", true);
+        declare_parameter<bool>("output_rep103", false);
 
         // Topics de hardware (el launch file remapea a los nombres genéricos)
         declare_parameter<std::string>("gyro_topic",
@@ -174,6 +184,8 @@ private:
 
         odom_frame_  = get_parameter("odom_frame").as_string();
         child_frame_ = get_parameter("child_frame").as_string();
+        publish_tf_ = get_parameter("publish_tf").as_bool();
+        output_rep103_ = get_parameter("output_rep103").as_bool();
     }
 
     void setupPublishers() {
@@ -409,18 +421,21 @@ private:
         const nav_odometry::OdometryState state = estimator_->getState();
         if (!state.valid) return;
 
-        const auto odom_msg = packOdometry(state, odom_frame_, child_frame_, stamp);
+        const auto odom_msg = packOdometry(
+            state, odom_frame_, child_frame_, stamp, output_rep103_);
         odom_pub_->publish(odom_msg);
 
         // Broadcast TF: odom --> child_frame
-        geometry_msgs::msg::TransformStamped tf_msg;
-        tf_msg.header        = odom_msg.header;
-        tf_msg.child_frame_id = child_frame_;
-        tf_msg.transform.translation.x = odom_msg.pose.pose.position.x;
-        tf_msg.transform.translation.y = odom_msg.pose.pose.position.y;
-        tf_msg.transform.translation.z = odom_msg.pose.pose.position.z;
-        tf_msg.transform.rotation      = odom_msg.pose.pose.orientation;
-        tf_br_->sendTransform(tf_msg);
+        if (publish_tf_) {
+            geometry_msgs::msg::TransformStamped tf_msg;
+            tf_msg.header        = odom_msg.header;
+            tf_msg.child_frame_id = child_frame_;
+            tf_msg.transform.translation.x = odom_msg.pose.pose.position.x;
+            tf_msg.transform.translation.y = odom_msg.pose.pose.position.y;
+            tf_msg.transform.translation.z = odom_msg.pose.pose.position.z;
+            tf_msg.transform.rotation      = odom_msg.pose.pose.orientation;
+            tf_br_->sendTransform(tf_msg);
+        }
     }
 
     // ── Utilidades ────────────────────────────────────────────────────────────
@@ -462,6 +477,8 @@ private:
     bool        use_visual_odometry_{false};
     bool        intrinsics_set_{false};
     bool        perf_log_enabled_{false};
+    bool        publish_tf_{true};
+    bool        output_rep103_{false};
     float       depth_scale_m_{0.001f};
     int64_t     depth_frames_received_{0};
 

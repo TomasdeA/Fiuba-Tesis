@@ -2,6 +2,12 @@
 
 Mapeador local de grilla de ocupación basado en imágenes de profundidad, IMU y odometría visual.
 
+Fuentes soportadas por `odom_source`:
+
+- `nav_odom`: VIO interna en la convención óptica del proyecto.
+- `rtabmap_odom`: odometría RGB-D de RTAB-Map en REP-103.
+- `vio+icp`: VIO + ICP fusionadas por `robot_localization`, en REP-103.
+
 ## Arquitectura
 
 ### Componentes actuales

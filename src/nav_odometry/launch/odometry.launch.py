@@ -55,6 +55,10 @@ def generate_launch_description():
                 config_path,
                 {'depth_min_m': depth_min, 'depth_max_m': depth_max,
                  'use_visual_odometry': True,
+                 'publish_tf': context.launch_configurations.get(
+                     'publish_tf', 'true').lower() == 'true',
+                 'output_rep103': context.launch_configurations.get(
+                     'output_rep103', 'false').lower() == 'true',
                  'perf_log_enabled': context.launch_configurations.get(
                      'performance', 'true').lower() == 'true'},
             ],
@@ -64,6 +68,8 @@ def generate_launch_description():
                 ('color',        hw_color),
                 ('camera_info',  hw_camera_info),
                 ('depth',        hw_depth),
+                ('nav_odom', context.launch_configurations.get(
+                    'output_topic', 'nav_odom')),
             ],
             output='screen',
         )
@@ -84,6 +90,21 @@ def generate_launch_description():
             'performance',
             default_value='true',
             description='Habilitar logs y acumuladores de performance',
+        ),
+        DeclareLaunchArgument(
+            'output_topic',
+            default_value='nav_odom',
+            description='Topic de salida nav_msgs/Odometry',
+        ),
+        DeclareLaunchArgument(
+            'publish_tf',
+            default_value='true',
+            description='Publicar la TF odom -> child_frame',
+        ),
+        DeclareLaunchArgument(
+            'output_rep103',
+            default_value='false',
+            description='Convertir la convención óptica interna a REP-103',
         ),
         OpaqueFunction(function=_make_node),
     ])

@@ -53,7 +53,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'odom_source',
             default_value='nav_odom',
-            choices=['nav_odom', 'rtabmap_odom'],
+            choices=['nav_odom', 'rtabmap_odom', 'vio+icp'],
             description='Fuente de odometría para transformar observaciones locales a odom',
         ),
         OpaqueFunction(function=_make_node),

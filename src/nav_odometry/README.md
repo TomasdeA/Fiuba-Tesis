@@ -8,3 +8,19 @@ ros2 launch realsense2_camera rs_launch.py \
   enable_depth:=true \
   unite_imu_method:=1 \
 ```
+
+## Salida REP-103
+
+El nodo conserva por defecto la convención óptica histórica usada por
+`local_mapper`. Para integrarlo con nodos ROS estándar se puede activar:
+
+```bash
+ros2 launch nav_odometry odometry.launch.py \
+  output_topic:=vio_odom \
+  output_rep103:=true \
+  publish_tf:=false
+```
+
+El modo `odom_source:=vio+icp` de `nav_bringup` configura estas opciones
+automáticamente y fusiona la VIO con `rtabmap_odom/icp_odometry` mediante
+`robot_localization/ekf_node`.

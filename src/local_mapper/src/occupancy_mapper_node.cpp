@@ -72,7 +72,9 @@ class OccupancyMapperNode : public rclcpp::Node {
     occupancy_mapper_ = std::make_unique<local_mapper::OccupancyMapper>(om_cfg);
 
     odom_source_ = declare_parameter<std::string>("odom_source", "nav_odom");
-    if (odom_source_ != "nav_odom" && odom_source_ != "rtabmap_odom") {
+    if (odom_source_ != "nav_odom" &&
+        odom_source_ != "rtabmap_odom" &&
+        odom_source_ != "vio+icp") {
       RCLCPP_WARN(get_logger(),
           "odom_source='%s' invalido; usando nav_odom",
           odom_source_.c_str());
@@ -142,7 +144,7 @@ class OccupancyMapperNode : public rclcpp::Node {
     float pos_z = static_cast<float>(msg->pose.pose.position.z);
     nav_math::Quaternion q_odom{1.f, 0.f, 0.f, 0.f};
 
-    if (odom_source_ == "rtabmap_odom") {
+    if (odom_source_ == "rtabmap_odom" || odom_source_ == "vio+icp") {
       static const nav_math::Quaternion q_ros_to_internal{
           0.5f, 0.5f, -0.5f, 0.5f};
       q_odom = (q_ros_to_internal * q_msg).normalized();

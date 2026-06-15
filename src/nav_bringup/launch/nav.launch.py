@@ -71,6 +71,8 @@ def _make_realsense_node(context, *args, **kwargs):
 
     use_local_mapper = context.launch_configurations.get(
         'use_local_mapper', 'false').lower() == 'true'
+    odom_source = context.launch_configurations.get('odom_source', 'nav_odom')
+    use_vio_icp = use_local_mapper and odom_source == 'vio+icp'
     use_visual = use_local_mapper
     depth_profile = context.launch_configurations.get(
         'realsense_depth_profile', '640x480x15')
@@ -85,6 +87,7 @@ def _make_realsense_node(context, *args, **kwargs):
         'enable_infra2': False,
         'enable_color': use_visual,
         'align_depth.enable': use_visual,
+        'pointcloud.enable': use_vio_icp,
         'unite_imu_method': 1,
         'depth_module.depth_profile': depth_profile,
         'initial_reset': True,
@@ -93,7 +96,12 @@ def _make_realsense_node(context, *args, **kwargs):
     if use_visual:
         params['rgb_camera.color_profile'] = color_profile
 
-    mode = 'RGBD odometry enabled' if use_visual else 'depth+IMU only'
+    if use_vio_icp:
+        mode = 'RGB-D + IMU + ICP odometry enabled'
+    elif use_visual:
+        mode = 'RGBD odometry enabled'
+    else:
+        mode = 'depth+IMU only'
     return [
         LogInfo(msg=f'RealSense stream profile: {mode}, depth={depth_profile}'),
         Node(
@@ -130,6 +138,27 @@ def generate_launch_description():
     use_rtabmap_odom = PythonExpression([
         "'", use_local_mapper, "' == 'true' and '",
         odom_source, "' == 'rtabmap_odom'"
+    ])
+    use_vio_icp = PythonExpression([
+        "'", use_local_mapper, "' == 'true' and '",
+        odom_source, "' == 'vio+icp'"
+    ])
+    use_rtabmap_family = PythonExpression([
+        "'", use_local_mapper, "' == 'true' and ('",
+        odom_source, "' == 'rtabmap_odom' or '",
+        odom_source, "' == 'vio+icp')"
+    ])
+    nav_odometry_output_topic = PythonExpression([
+        "'vio_odom' if '", odom_source,
+        "' == 'vio+icp' else 'nav_odom'"
+    ])
+    nav_odometry_publish_tf = PythonExpression([
+        "'false' if '", odom_source,
+        "' == 'vio+icp' else 'true'"
+    ])
+    nav_odometry_output_rep103 = PythonExpression([
+        "'true' if '", odom_source,
+        "' == 'vio+icp' else 'false'"
     ])
 
     # ── Config file paths ─────────────────────────────────
@@ -185,6 +214,12 @@ def generate_launch_description():
         'local_mapper.launch.py',
     ])
 
+    vio_icp_ekf_cfg = PathJoinSubstitution([
+        FindPackageShare('nav_bringup'),
+        'config',
+        'vio_icp_ekf.yaml',
+    ])
+
     # ── RealSense camera (optional — needs the HW) ───────
     # Created at launch runtime so local_mapper can request RGB-D odometry
     # streams. Without local_mapper, color/alignment stay disabled.
@@ -199,7 +234,7 @@ def generate_launch_description():
         executable='imu_filter_madgwick_node',
         name='imu_filter_madgwick',
         output='screen',
-        condition=IfCondition(use_rtabmap_odom),
+        condition=IfCondition(use_rtabmap_family),
         parameters=[{
             'use_mag': False,
             'publish_tf': False,
@@ -255,6 +290,37 @@ def generate_launch_description():
         ],
     )
 
+    # ── RTAB-Map ICP odometry ─────────────────────────────
+    # The RealSense point cloud is registered geometrically. Its estimate is
+    # fused below with the internal VIO by robot_localization.
+    icp_odometry = Node(
+        package='rtabmap_odom',
+        executable='icp_odometry',
+        name='icp_odometry',
+        output='screen',
+        condition=IfCondition(use_vio_icp),
+        parameters=[{
+            'frame_id': 'camera_link',
+            'odom_frame_id': 'odom',
+            'publish_tf': False,
+            'wait_imu_to_init': True,
+            'Icp/PointToPlane': 'true',
+            'Icp/VoxelSize': '0.05',
+            'Icp/MaxCorrespondenceDistance': '0.15',
+            'Icp/CorrespondenceRatio': '0.20',
+            'Icp/Iterations': '20',
+            'Odom/ResetCountdown': '0',
+            'Odom/GuessMotion': 'true',
+            'Odom/FilteringStrategy': '1',
+            'always_check_imu_tf': False,
+        }],
+        remappings=[
+            ('scan_cloud', '/camera/camera/depth/color/points'),
+            ('imu', '/imu/data_filtered'),
+            ('odom', 'icp_odom'),
+        ],
+    )
+
     # ── nav_odometry: IMU + estéreo → nav_msgs/Odometry ──
     # Fusiona giroscopio, acelerómetro y tracker estéreo infrarrojo
     # con un filtro complementario de Mahony.
@@ -265,12 +331,28 @@ def generate_launch_description():
             'sensor_depth_min_m': str(_depth_min_m),
             'sensor_depth_max_m': str(_depth_max_m),
             'performance': performance,
+            'output_topic': nav_odometry_output_topic,
+            'publish_tf': nav_odometry_publish_tf,
+            'output_rep103': nav_odometry_output_rep103,
         }.items(),
         condition=IfCondition(PythonExpression([
             "'", use_perception, "' == 'true' and '", pipeline_mode,
             "' == 'filtered' and '", use_local_mapper,
-            "' == 'true' and '", odom_source, "' == 'nav_odom'"
+            "' == 'true' and ('", odom_source, "' == 'nav_odom' or '",
+            odom_source, "' == 'vio+icp')"
         ])),
+    )
+
+    vio_icp_fusion = Node(
+        package='robot_localization',
+        executable='ekf_node',
+        name='vio_icp_fusion',
+        output='screen',
+        condition=IfCondition(use_vio_icp),
+        parameters=[vio_icp_ekf_cfg],
+        remappings=[
+            ('odometry/filtered', 'nav_odom'),
+        ],
     )
 
     # ── depth_obstacle_filter: depth + IMU → obstacle_cloud ──
@@ -354,7 +436,8 @@ def generate_launch_description():
         condition=IfCondition(PythonExpression([
             "'", use_spatial_awareness, "' == 'true' and '",
             use_local_mapper, "' == 'true' and '",
-            odom_source, "' == 'rtabmap_odom'"
+            "('", odom_source, "' == 'rtabmap_odom' or '",
+            odom_source, "' == 'vio+icp')"
         ])),
     )
 
@@ -502,11 +585,12 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'odom_source',
             default_value='nav_odom',
-            choices=['nav_odom', 'rtabmap_odom'],
+            choices=['nav_odom', 'rtabmap_odom', 'vio+icp'],
             description=(
                 'Fuente de odometría para local_mapper: '
                 "'nav_odom' usa nav_odometry interno; "
                 "'rtabmap_odom' usa rtabmap rgbd_odometry. "
+                "'vio+icp' usa RTAB-Map con IMU, registro visual e ICP. "
                 'depth_obstacle_filter siempre alinea a gravedad con IMU.'
             ),
         ),
@@ -520,7 +604,7 @@ def generate_launch_description():
             default_value='false',
             description=(
                 'Launch spatial_awareness. Requires use_local_mapper=true '
-                'and odom_source=rtabmap_odom.'
+                'and odom_source=rtabmap_odom or vio+icp.'
             ),
         ),
         DeclareLaunchArgument(
@@ -597,7 +681,9 @@ def generate_launch_description():
         ),
         imu_filter,
         TimerAction(period=5.0, actions=[rtabmap_odometry]),
+        TimerAction(period=5.0, actions=[icp_odometry]),
         nav_odometry,
+        vio_icp_fusion,
         depth_obstacle_filter,
         local_mapper,
         depth_to_matrix,

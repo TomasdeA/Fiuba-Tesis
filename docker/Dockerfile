@@ -23,6 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-rmw-cyclonedds-cpp \
     ros-humble-imu-filter-madgwick \
     ros-humble-rtabmap-ros \
+    ros-humble-robot-localization \
     ros-humble-rviz2 \
     && rm -rf /var/lib/apt/lists/*
 
