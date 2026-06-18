@@ -8,6 +8,7 @@
 #include <custom_interfaces/msg/depth_grid.hpp>
 #include <custom_interfaces/msg/directional_risk.hpp>
 #include <custom_interfaces/msg/haptic_grid.hpp>
+#include <custom_interfaces/msg/pipeline_mode.hpp>
 #include <custom_interfaces/msg/spatial_awareness.hpp>
 #include <rclcpp/rclcpp.hpp>
 
@@ -36,6 +37,8 @@ public:
         "spatial_awareness_topic", "/spatial_awareness/collision_risk");
     output_grid_topic_ = declare_parameter<std::string>(
         "output_grid_topic", "/perception/haptic_grid");
+    pipeline_mode_topic_ = declare_parameter<std::string>(
+      "pipeline_mode_topic", "/pipeline/selected_mode");
 
     z_min_m_ = static_cast<float>(declare_parameter<double>("z_min_m", 0.25));
     z_max_m_ = static_cast<float>(declare_parameter<double>("z_max_m", 3.0));
@@ -65,11 +68,16 @@ public:
             spatial_awareness_topic_, 10,
             std::bind(&HapticGridGeneratorNode::onSpatialAwareness, this,
                       std::placeholders::_1));
+    pipeline_mode_sub_ =
+      create_subscription<custom_interfaces::msg::PipelineMode>(
+        pipeline_mode_topic_, 10,
+        std::bind(&HapticGridGeneratorNode::onPipelineMode, this,
+              std::placeholders::_1));
 
     RCLCPP_INFO(get_logger(),
-                "HapticGridGenerator listo. input=%s spatial=%s output=%s",
-                input_grid_topic_.c_str(), spatial_awareness_topic_.c_str(),
-                output_grid_topic_.c_str());
+          "HapticGridGenerator listo. input=%s spatial=%s output=%s mode=%s",
+          input_grid_topic_.c_str(), spatial_awareness_topic_.c_str(),
+          output_grid_topic_.c_str(), pipeline_mode_topic_.c_str());
   }
 
 private:
@@ -79,6 +87,12 @@ private:
     latest_spatial_ = *msg;
     latest_spatial_stamp_ = now();
     has_spatial_ = true;
+  }
+
+  void onPipelineMode(
+      const custom_interfaces::msg::PipelineMode::SharedPtr msg)
+  {
+    pipeline_mode_ = static_cast<int>(msg->mode);
   }
 
   void onGrid(const custom_interfaces::msg::DepthGrid::SharedPtr msg)
@@ -122,6 +136,9 @@ private:
 
   bool spatialAwarenessIsUsable() const
   {
+    if (pipeline_mode_ != static_cast<int>(custom_interfaces::msg::PipelineMode::MODE_FULL)) {
+      return false;
+    }
     if (!has_spatial_ || !latest_spatial_.valid) {
       return false;
     }
@@ -194,6 +211,7 @@ private:
   std::string input_grid_topic_;
   std::string spatial_awareness_topic_;
   std::string output_grid_topic_;
+  std::string pipeline_mode_topic_;
 
   float z_min_m_{0.25f};
   float z_max_m_{3.0f};
@@ -203,12 +221,15 @@ private:
   int rear_column_count_{2};
 
   bool has_spatial_{false};
+  int pipeline_mode_{static_cast<int>(custom_interfaces::msg::PipelineMode::MODE_RAW)};
   custom_interfaces::msg::SpatialAwareness latest_spatial_;
   rclcpp::Time latest_spatial_stamp_{0, 0, RCL_ROS_TIME};
 
   rclcpp::Subscription<custom_interfaces::msg::DepthGrid>::SharedPtr grid_sub_;
   rclcpp::Subscription<custom_interfaces::msg::SpatialAwareness>::SharedPtr
       spatial_sub_;
+  rclcpp::Subscription<custom_interfaces::msg::PipelineMode>::SharedPtr
+      pipeline_mode_sub_;
   rclcpp::Publisher<custom_interfaces::msg::HapticGrid>::SharedPtr grid_pub_;
 };
 

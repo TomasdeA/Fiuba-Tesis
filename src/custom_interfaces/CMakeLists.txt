@@ -17,6 +17,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/DepthGrid.msg"
   "msg/DirectionalRisk.msg"
   "msg/HapticGrid.msg"
+  "msg/PipelineMode.msg"
   "msg/SpatialAwareness.msg"
   DEPENDENCIES std_msgs builtin_interfaces
 )

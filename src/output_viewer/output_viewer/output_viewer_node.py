@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from custom_interfaces.msg import HapticGrid
+from custom_interfaces.msg import PipelineMode
 from custom_interfaces.msg import SpatialAwareness
 from rcl_interfaces.msg import Parameter
 from rcl_interfaces.msg import ParameterType
@@ -131,6 +132,8 @@ class DepthGridHeatmapNode(Node):
         )
         self.declare_parameter('show_spatial_awareness', True)
         self.declare_parameter('spatial_awareness_timeout_s', 0.75)
+        self.declare_parameter('pipeline_selected_topic', '/pipeline/selected_mode')
+        self.declare_parameter('pipeline_command_topic', '/pipeline/selected_mode_cmd')
 
         self.topic = str(self.get_parameter('topic').value)
         self.show_values = bool(self.get_parameter('show_values').value)
@@ -181,6 +184,12 @@ class DepthGridHeatmapNode(Node):
         self.spatial_awareness_timeout_s = float(
             self.get_parameter('spatial_awareness_timeout_s').value
         )
+        self.pipeline_selected_topic = str(
+            self.get_parameter('pipeline_selected_topic').value
+        )
+        self.pipeline_command_topic = str(
+            self.get_parameter('pipeline_command_topic').value
+        )
         self.h_aperture_deg = float(np.clip(
             self.h_aperture_deg,
             self.h_aperture_min_deg,
@@ -208,6 +217,17 @@ class DepthGridHeatmapNode(Node):
             self.cb_spatial_awareness,
             10,
         )
+        self.pipeline_selected_sub = self.create_subscription(
+            PipelineMode,
+            self.pipeline_selected_topic,
+            self.cb_pipeline_mode,
+            10,
+        )
+        self.pipeline_mode_pub = self.create_publisher(
+            PipelineMode,
+            self.pipeline_command_topic,
+            10,
+        )
 
         # Estado compartido (actualizado por el callback)
         self.latest_m = None     # intensidad 0..100
@@ -220,6 +240,8 @@ class DepthGridHeatmapNode(Node):
         }
         self.spatial_awareness_last_rx_s = 0.0
         self.spatial_awareness_valid = False
+        self.pipeline_mode = int(PipelineMode.MODE_RAW)
+        self._pipeline_buttons = []
         self._dirty = False
         self._dragging_aperture = False
         self._last_aperture_send_s = 0.0
@@ -257,7 +279,8 @@ class DepthGridHeatmapNode(Node):
             f'| flip_rows={self.flip_rows_for_display} '
             f'| pygame_view={self.pygame_view_mode} '
             f'| aperture={self.h_aperture_deg:.1f}deg '
-            f'| spatial_awareness={self.spatial_awareness_topic}'
+            f'| spatial_awareness={self.spatial_awareness_topic} '
+            f'| pipeline_mode={self.pipeline_selected_topic}'
         )
 
     def _setup_matplotlib(self):
@@ -329,6 +352,92 @@ class DepthGridHeatmapNode(Node):
         self.spatial_awareness['rear'] = self._risk_intensity(msg.rear)
         self.spatial_awareness_last_rx_s = time.monotonic()
         self._dirty = True
+
+    def cb_pipeline_mode(self, msg: PipelineMode):
+        mode = int(msg.mode)
+        if mode in (
+            int(PipelineMode.MODE_RAW),
+            int(PipelineMode.MODE_FILTERED),
+            int(PipelineMode.MODE_FULL),
+        ):
+            if mode != self.pipeline_mode:
+                self.pipeline_mode = mode
+                self._dirty = True
+
+    def _publish_pipeline_mode(self, mode: int):
+        if mode not in (
+            int(PipelineMode.MODE_RAW),
+            int(PipelineMode.MODE_FILTERED),
+            int(PipelineMode.MODE_FULL),
+        ):
+            return
+        msg = PipelineMode()
+        msg.mode = int(mode)
+        self.pipeline_mode_pub.publish(msg)
+
+    def _pipeline_mode_label(self):
+        if self.pipeline_mode == int(PipelineMode.MODE_FILTERED):
+            return 'FILTERED'
+        if self.pipeline_mode == int(PipelineMode.MODE_FULL):
+            return 'FULL'
+        return 'RAW'
+
+    def _pipeline_buttons_layout(self):
+        width, _height = self.screen.get_size()
+        group_w = min(540, max(300, width - 260))
+        btn_gap = 14
+        btn_w = (group_w - 2 * btn_gap) // 3
+        btn_h = 34
+        x0 = (width - group_w) // 2
+        y = 214
+        return [
+            ('RAW', int(PipelineMode.MODE_RAW), pygame.Rect(x0, y, btn_w, btn_h)),
+            (
+                'FILTERED',
+                int(PipelineMode.MODE_FILTERED),
+                pygame.Rect(x0 + btn_w + btn_gap, y, btn_w, btn_h),
+            ),
+            (
+                'FULL',
+                int(PipelineMode.MODE_FULL),
+                pygame.Rect(x0 + 2 * (btn_w + btn_gap), y, btn_w, btn_h),
+            ),
+        ]
+
+    def _draw_pipeline_buttons(self):
+        self._pipeline_buttons = self._pipeline_buttons_layout()
+        self._draw_text(
+            f'PIPELINE MODE: {self._pipeline_mode_label()}',
+            (self.screen.get_width() // 2, 196),
+            self.small_font,
+            FG,
+            center=True,
+        )
+
+        for label, mode, rect in self._pipeline_buttons:
+            selected = mode == self.pipeline_mode
+            fill = (20, 110, 82) if selected else (26, 40, 58)
+            edge = (121, 231, 190) if selected else PANEL_EDGE_DIM
+            text_color = HOT if selected else FG
+            pygame.draw.rect(self.screen, fill, rect, border_radius=7)
+            pygame.draw.rect(self.screen, edge, rect, 2, border_radius=7)
+            self._draw_text(
+                label,
+                rect.center,
+                self.small_font,
+                text_color,
+                center=True,
+            )
+
+    def _handle_pipeline_button_event(self, event):
+        if event.type != pygame.MOUSEBUTTONDOWN or event.button != 1:
+            return False
+
+        for _label, mode, rect in self._pipeline_buttons:
+            if rect.collidepoint(event.pos):
+                self._publish_pipeline_mode(mode)
+                return True
+        return False
 
     def _risk_intensity(self, risk) -> float:
         if not self.spatial_awareness_valid or not risk.active:
@@ -458,6 +567,8 @@ class DepthGridHeatmapNode(Node):
 
     def _handle_events(self):
         for event in pygame.event.get():
+            if self._handle_pipeline_button_event(event):
+                continue
             if self._handle_aperture_event(event):
                 continue
             if event.type == pygame.QUIT:
@@ -496,6 +607,7 @@ class DepthGridHeatmapNode(Node):
             center=True,
         )
         self._draw_aperture_slider()
+        self._draw_pipeline_buttons()
         self._draw_text(
             'WAITING FOR SIGNAL',
             (width // 2, height // 2),
@@ -829,10 +941,11 @@ class DepthGridHeatmapNode(Node):
             center=True,
         )
         self._draw_aperture_slider()
+        self._draw_pipeline_buttons()
 
         plot_rect, cbar_rect = self._layout(rows, cols)
         plot_rect = plot_rect.inflate(-24, -58)
-        plot_rect.top += 16
+        plot_rect.top += 64
 
         rgb = intensity_to_neon_rgb(m)
         h_edges = self._angle_edges(
@@ -970,8 +1083,10 @@ class DepthGridHeatmapNode(Node):
             glow=True,
         )
         self._draw_aperture_slider()
+        self._draw_pipeline_buttons()
 
         plot_rect, cbar_rect = self._layout(rows, cols)
+        plot_rect = plot_rect.move(0, 42)
         rgb = intensity_to_neon_rgb(m)
         rgb[cnt <= 0] = INVALID_BG
         rgb = display_matrix(rgb, self.flip_rows_for_display)

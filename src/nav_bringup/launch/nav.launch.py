@@ -268,7 +268,7 @@ def generate_launch_description():
         }.items(),
         condition=IfCondition(PythonExpression([
             "'", use_perception, "' == 'true' and '", pipeline_mode,
-            "' == 'filtered' and '", use_local_mapper,
+            "' != 'raw' and '", use_local_mapper,
             "' == 'true' and '", odom_source, "' == 'nav_odom'"
         ])),
     )
@@ -286,7 +286,7 @@ def generate_launch_description():
             'performance': performance,
         }.items(),
         condition=IfCondition(PythonExpression([
-            "'", use_perception, "' == 'true' and '", pipeline_mode, "' == 'filtered'"
+            "'", use_perception, "' == 'true' and '", pipeline_mode, "' != 'raw'"
         ])),
     )
 
@@ -299,7 +299,10 @@ def generate_launch_description():
             'sensor_depth_max_m': str(_depth_max_m),
             'odom_source': odom_source,
         }.items(),
-        condition=IfCondition(use_local_mapper),
+        condition=IfCondition(PythonExpression([
+            "'", use_local_mapper, "' == 'true' and '", pipeline_mode,
+            "' == 'full'"
+        ])),
     )
 
     # ── Depth-to-matrix encoder (pipeline: raw) ───────────
@@ -354,7 +357,22 @@ def generate_launch_description():
         condition=IfCondition(PythonExpression([
             "'", use_spatial_awareness, "' == 'true' and '",
             use_local_mapper, "' == 'true' and '",
+            pipeline_mode, "' == 'full' and '",
             odom_source, "' == 'rtabmap_odom'"
+        ])),
+    )
+
+    pipeline_mode_bridge = Node(
+        package='nav_bringup',
+        executable='pipeline_mode_bridge',
+        name='pipeline_mode_bridge',
+        output='screen',
+        parameters=[{
+            'default_mode': pipeline_mode,
+        }],
+        condition=IfCondition(PythonExpression([
+            "'", use_perception, "' == 'true' and '", pipeline_mode,
+            "' != 'none'"
         ])),
     )
 
@@ -370,6 +388,7 @@ def generate_launch_description():
             {
                 'z_min_m': _depth_min_m,
                 'z_max_m': 3.0,
+                'pipeline_mode_topic': '/pipeline/selected_mode',
             },
         ],
         output='screen',
@@ -403,6 +422,8 @@ def generate_launch_description():
             'h_aperture_deg': 45.0,
             'h_aperture_min_deg': 15.0,
             'h_aperture_max_deg': 70.0,
+            'pipeline_selected_topic': '/pipeline/selected_mode',
+            'pipeline_command_topic': '/pipeline/selected_mode_cmd',
         }],
     )
 
@@ -556,11 +577,12 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'pipeline_mode',
             default_value='raw',
-            choices=['raw', 'filtered', 'none'],
+            choices=['raw', 'filtered', 'full', 'none'],
             description=(
                 'Modo de la pipeline de encodificación de grilla: '
                 "'raw' usa depth_to_matrix (imagen de profundidad directa), "
                 "'filtered' usa obstacle_grid_encoder (ObstacleCloud con ground removal), "
+                "'full' habilita obstacle_grid_encoder + local_mapper + spatial_awareness, "
                 "'none' no lanza ningún encoder de grilla"
             ),
         ),
@@ -600,6 +622,7 @@ def generate_launch_description():
         nav_odometry,
         depth_obstacle_filter,
         local_mapper,
+        pipeline_mode_bridge,
         depth_to_matrix,
         obstacle_grid,
         spatial_awareness,

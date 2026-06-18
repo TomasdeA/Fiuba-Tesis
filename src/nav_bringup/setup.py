@@ -29,6 +29,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'pipeline_mode_bridge = nav_bringup.pipeline_mode_bridge:main',
         ],
     },
 )
