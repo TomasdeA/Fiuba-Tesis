@@ -19,6 +19,10 @@ Environment="ROS_DOMAIN_ID=0"
 Environment="WS_PATH=/home/tomasdea/Tesis/develop/Fiuba-Tesis"
 
 # ── Comando de arranque ────────────────────────────────────────────────────
+# Librealsense usa el backend V4L2. Cargar el driver en el host antes de
+# crear el contenedor para que la D435i exponga sus dispositivos /dev/video*.
+ExecStartPre=+/sbin/modprobe uvcvideo
+
 # Levanta un contenedor efímero (--rm) con docker-compose.raspi.yml.
 # bash -l sourcea /etc/profile.d/context.sh (montado en el compose),
 # que a su vez sourcea ROS2 y el workspace — equivalente a tesis-run.
