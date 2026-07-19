@@ -1,80 +1,188 @@
-<p align="center">
-  <img src="Images/fiuba_logo.png" alt="FIUBA logo" width="280"/>
-</p>
+# nav_mapper
 
-<h1 align="center">Tesis – Captación del entorno y mapeo local</h1>
+Workspace ROS 2 para la tesis **"Navegación asistida para ciegos mediante mapeo del entorno"** de Ingeniería Electrónica, Facultad de Ingeniería de la Universidad de Buenos Aires (FIUBA).
 
-<p align="center">
-Facultad de Ingeniería – Universidad de Buenos Aires (FIUBA)
-</p>
+El repositorio implementa una pipeline de percepción y mapeo local para asistir la navegación con una cámara Intel RealSense D435i. A partir de datos de profundidad e IMU, el sistema genera una representación compacta del entorno cercano, estima obstáculos, mantiene un mapa local de ocupación y produce una grilla háptica/visual pensada para alimentar actuadores o herramientas de análisis.
 
-## Descripción
-Este repositorio contiene el desarrollo correspondiente a la tesis *“Captación del entorno y mapeo local”* de la carrera de Ingeniería Electrónica (FIUBA).
+## Qué incluye
 
-El trabajo se enfoca en la adquisición y procesamiento de información de profundidad en tiempo real a partir de una cámara RGB-D, con el objetivo de generar una representación compacta del entorno inmediato frente al usuario.  
-Dicha representación se materializa en una matriz de baja resolución publicada como el tópico `/depth_grid`, que resume la información espacial relevante del frame actual.
+- Entorno de desarrollo reproducible con Docker y ROS 2 Humble.
+- Captura de cámara RealSense D435i.
+- Encodificación de profundidad en grillas compactas.
+- Filtrado de obstáculos con alineación gravitacional y remoción de suelo.
+- Estimación de odometría visual-inercial.
+- Mapeo local incremental en una grilla de ocupación 2D.
+- Estimación de riesgo espacial fuera del campo de visión comunicado.
+- Generación de salida háptica y visualización de diagnóstico.
+- Control auxiliar para grabación de rosbags.
 
-Sobre esta salida se proyecta el desarrollo de una **capa de mapeo local de corto alcance**, concebida como una memoria temporal de obstáculos recientemente detectados (No desarrollado todavia).
-Este mapa local permitirá aumentar la robustez del sistema frente a oclusiones, cambios de orientación del sensor y limitaciones del campo visual, habilitando en etapas posteriores estrategias de alerta anticipada ante colisiones potenciales fuera del campo de visión de la cámara.
+## Arquitectura general
 
-## Levantar docker
-```bash
-cd ~/Tesis/develop/nav_mapper/
-make build # Construye las imágenes de Docker definidas en docker-compose.yml
+La pipeline principal puede ejecutarse en dos modos:
+
+- `raw`: usa directamente la imagen de profundidad y la convierte a una grilla compacta.
+- `filtered`: filtra la nube de profundidad, remueve suelo, genera obstáculos y habilita mapeo local/odometría.
+
+Flujo simplificado:
+
+```text
+RealSense D435i
+  -> depth_grid_encoder / depth_obstacle_filter
+  -> local_mapper + spatial_awareness
+  -> haptic_grid_generator
+  -> output_viewer / hardware_manager
 ```
-## Buildear
-Dentro
+
+Los mensajes propios se definen en `custom_interfaces`, incluyendo `DepthGrid`, `HapticGrid` y `SpatialAwareness`.
+
+## Requisitos
+
+- Linux con Docker y Docker Compose.
+- Cámara Intel RealSense D435i para ejecución con hardware real.
+- Acceso a dispositivos `/dev` desde Docker.
+- Servidor X11 disponible si se usan visualizadores gráficos o RViz2.
+
+El contenedor del proyecto instala el entorno ROS 2 esperado, por lo que la forma recomendada de trabajar es mediante Docker.
+
+## Puesta en marcha
+
+Desde la raíz del repositorio:
+
 ```bash
-make run   # Levanta todos los servicios definidos en docker-compose.yml y entra al contenedor
-source /opt/ros/humble/setup.bash
+make build
+tesis-run
+```
+
+Dentro del contenedor:
+
+```bash
+tesis-run
 colcon build
 source install/setup.bash
 ```
-## Correr SW
-### Correr con el vizualisador de salida
-**Terminal 1**
+
+Para abrir otra terminal dentro del contenedor:
+
 ```bash
-make shell
-source install/setup.bash
-ros2 launch realsense2_camera rs_launch.py enable_gyro:=false enable_accel:=false
+tesis-terminal
 ```
-**Terminal 2**
+
+## Ejecución
+
+Launch principal con cámara, pipeline básica y salida por hardware:
+
 ```bash
-make shell
-source install/setup.bash
-ros2 run depth_grid_encoder depth_to_matrix 
+ros2 launch nav_bringup nav.launch.py use_perception:=true
 ```
-**Terminal 3**
+
+Ejecución sin hardware de actuadores y con visualización:
+
 ```bash
-make shell
-source install/setup.bash
-ros2 run output_viewer depth_grid_heatmap 
+ros2 launch nav_bringup nav.launch.py \
+  use_perception:=true \
+  use_hw:=false \
+  use_viz:=true
 ```
-## Estructura del proyecto
 
-### `src/`
-Contiene los paquetes ROS 2 del workspace.
+Pipeline filtrada con mapeo local, RViz2 y odometría interna:
 
-- **`depth_grid_encoder`**  
-  Genera el tópico `/depth_grid` a partir de la imagen de profundidad de la cámara RealSense.
+```bash
+ros2 launch nav_bringup nav.launch.py \
+  use_perception:=true \
+  pipeline_mode:=filtered \
+  use_local_mapper:=true \
+  odom_source:=nav_odom \
+  use_hw:=false \
+  use_rviz:=true
+```
 
-- **`tesis_nav_interfaces`**  
-  Define los tipos de mensajes personalizados utilizados para la comunicación entre nodos (por ejemplo `DepthGrid`, `DepthCellStats`, etc.).
+Pipeline filtrada con RTAB-Map como fuente de odometría y estimación de riesgo espacial:
 
-- **`hardware_manager`**  
-  Consume el tópico `/depth_grid` y traduce la información de distancia en señales de control enviadas al hardware (motores / actuadores).
+```bash
+ros2 launch nav_bringup nav.launch.py \
+  use_perception:=true \
+  pipeline_mode:=filtered \
+  use_local_mapper:=true \
+  odom_source:=rtabmap_odom \
+  use_spatial_awareness:=true \
+  use_hw:=false \
+  use_rviz:=true
+```
 
-- **`output_viewer`**  
-  Visualiza el contenido del tópico `/depth_grid` como un gráfico de intensidad (heatmap), representando las señales enviadas a cada motor.
+Reproducción desde rosbag en lugar de cámara:
 
----
+```bash
+ros2 launch nav_bringup nav.launch.py \
+  use_realsense:=false \
+  use_bag:=true \
+  bag_path:=/ruta/al/bag \
+  use_perception:=true
+```
 
-### `docker/`
-Dockerfiles utilizados para construir las imágenes del entorno de desarrollo y ejecución.
+Si `bag_path` se deja vacío, el launch intenta usar el bag más reciente en `~/bags`.
 
-### `.devcontainer/`
-Configuración del Dev Container para trabajar con VS Code dentro de Docker.
+## Paquetes principales
 
-### `docker-compose.yml`
-Orquesta el entorno completo de desarrollo, incluyendo contenedores, volúmenes y dispositivos.
+- `nav_bringup`: launch principal y configuración compartida de la pipeline.
+- `custom_interfaces`: mensajes ROS 2 propios del sistema.
+- `nav_math`: utilidades compartidas de vectores y cuaterniones.
+- `depth_grid_encoder`: conversión de profundidad u obstáculos a grillas compactas.
+- `depth_obstacle_filter`: proyección de profundidad, alineación con gravedad, remoción de suelo y publicación de obstáculos.
+- `nav_odometry`: odometría visual-inercial para RealSense D435i.
+- `local_mapper`: mapeo local incremental en `nav_msgs/OccupancyGrid`.
+- `spatial_awareness`: estimación de riesgos laterales/traseros a partir del mapa local.
+- `haptic_grid_generator`: fusión de grilla de profundidad y riesgos espaciales en una salida háptica.
+- `hardware_manager`: envío de la grilla háptica a actuadores por puerto serie y utilidades GPIO.
+- `output_viewer`: visualizadores y monitores de diagnóstico.
+- `rosbag_controller`: servicio para iniciar/detener grabación de rosbags.
 
+## Estructura del repositorio
+
+```text
+.
+├── docker/             # Dockerfile y recursos del contenedor
+├── .devcontainer/      # Configuración para VS Code Dev Containers
+├── src/                # Paquetes ROS 2 del workspace
+├── tools/              # Utilidades auxiliares
+├── Images/             # Imágenes usadas por documentación
+├── docker-compose.yml  # Orquestación del entorno de desarrollo
+└── Makefile            # Atajos para build, shell, run, clean y formato
+```
+
+## Comandos útiles
+
+```bash
+make build   # Construye la imagen Docker
+make run     # Levanta el contenedor y abre una shell
+make shell   # Entra a un contenedor ya levantado
+make clean   # Baja el entorno y elimina volúmenes asociados
+make fmt     # Formatea código C/C++ con clang-format
+tesis-run
+tesis-terminal
+```
+
+Dentro del contenedor:
+
+```bash
+colcon build
+colcon test
+source install/setup.bash
+```
+
+## Configuración
+
+El rango válido del sensor de profundidad se centraliza en:
+
+```text
+src/nav_bringup/config/sensor_range.yaml
+```
+
+El launch principal lee ese archivo y propaga los valores a los nodos que usan límites de profundidad. Las configuraciones específicas de cada paquete viven en sus respectivos directorios `config/`.
+
+## Estado del proyecto
+
+Este repositorio forma parte de un trabajo de tesis y está orientado a investigación, prototipado y validación experimental. Algunas piezas están diseñadas para correr con hardware específico, por lo que ciertos nodos requieren cámara RealSense, acceso a dispositivos serie, GPIO o visualización gráfica.
+
+## Repositorios relacionados
+
+- `docs`: informe, presentación y material escrito de la tesis.
