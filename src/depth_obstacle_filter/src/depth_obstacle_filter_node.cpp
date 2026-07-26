@@ -100,6 +100,15 @@ class DepthObstacleFilterNode : public rclcpp::Node {
         declare_parameter<double>("height_max_step_m", 0.005));
     height_outlier_reject_m_ = static_cast<float>(
         declare_parameter<double>("height_outlier_reject_m", 0.25));
+    height_change_confirmations_ = std::max(
+        1, static_cast<int>(
+            declare_parameter<int>("height_change_confirmations", 5)));
+    height_change_consistency_m_ = static_cast<float>(
+        declare_parameter<double>("height_change_consistency_m", 0.08));
+    height_transition_alpha_ = static_cast<float>(
+        declare_parameter<double>("height_transition_alpha", 0.08));
+    height_transition_max_step_m_ = static_cast<float>(
+        declare_parameter<double>("height_transition_max_step_m", 0.02));
     height_publish_delta_m_ = static_cast<float>(
         declare_parameter<double>("height_publish_delta_m", 0.05));
     height_min_ground_quality_ = static_cast<float>(
@@ -209,27 +218,77 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     if (!height_filter_initialized_) {
       filtered_camera_height_m_ = raw_height_m;
       height_filter_initialized_ = true;
+      resetHeightChangeCandidate();
       return true;
     }
 
     const float delta = raw_height_m - filtered_camera_height_m_;
-    if (std::abs(delta) > height_outlier_reject_m_) {
-      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
-          "[camera_height] medicion rechazada raw=%.3f filtrada=%.3f delta=%.3f",
-          raw_height_m, filtered_camera_height_m_, delta);
-      return false;
+    if (!height_transition_active_ &&
+        std::abs(delta) > height_outlier_reject_m_) {
+      if (!height_change_candidate_initialized_ ||
+          std::abs(raw_height_m - height_change_candidate_m_) >
+              height_change_consistency_m_) {
+        height_change_candidate_m_ = raw_height_m;
+        height_change_candidate_count_ = 1;
+        height_change_candidate_initialized_ = true;
+      } else {
+        // Promediar el grupo candidato reduce el efecto del ruido antes de
+        // decidir que se trata de un cambio físico de altura.
+        height_change_candidate_m_ +=
+            0.25f * (raw_height_m - height_change_candidate_m_);
+        ++height_change_candidate_count_;
+      }
+
+      if (height_change_candidate_count_ < height_change_confirmations_) {
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+            "[camera_height] cambio grande pendiente raw=%.3f filtrada=%.3f "
+            "delta=%.3f confirmaciones=%d/%d",
+            raw_height_m, filtered_camera_height_m_, delta,
+            height_change_candidate_count_, height_change_confirmations_);
+        return false;
+      }
+
+      height_transition_active_ = true;
+      RCLCPP_INFO(get_logger(),
+          "[camera_height] cambio de altura confirmado %.3f -> %.3f m; "
+          "iniciando transicion suave",
+          filtered_camera_height_m_, height_change_candidate_m_);
+    } else if (!height_transition_active_) {
+      resetHeightChangeCandidate();
     }
 
+    const float alpha = height_transition_active_
+        ? height_transition_alpha_
+        : height_filter_alpha_;
+    const float max_step = height_transition_active_
+        ? height_transition_max_step_m_
+        : height_max_step_m_;
     const float limited_step = std::clamp(
-        height_filter_alpha_ * delta,
-        -height_max_step_m_,
-        height_max_step_m_);
+        alpha * delta, -max_step, max_step);
     if (std::abs(limited_step) < 1e-4f) {
       return false;
     }
 
     filtered_camera_height_m_ += limited_step;
+
+    // Al entrar nuevamente en la banda normal, vuelve a operar el rechazo de
+    // outliers convencional. Así la transición no deja el filtro permisivo.
+    if (height_transition_active_ &&
+        std::abs(raw_height_m - filtered_camera_height_m_) <=
+            height_outlier_reject_m_) {
+      height_transition_active_ = false;
+      resetHeightChangeCandidate();
+      RCLCPP_INFO(get_logger(),
+          "[camera_height] transicion completada; filtrada=%.3f raw=%.3f m",
+          filtered_camera_height_m_, raw_height_m);
+    }
     return true;
+  }
+
+  void resetHeightChangeCandidate() {
+    height_change_candidate_m_ = 0.0f;
+    height_change_candidate_count_ = 0;
+    height_change_candidate_initialized_ = false;
   }
 
   bool isGroundReliableForHeight() const {
@@ -801,7 +860,15 @@ class DepthObstacleFilterNode : public rclcpp::Node {
   float height_filter_alpha_ = 0.03f;
   float height_max_step_m_ = 0.005f;
   float height_outlier_reject_m_ = 0.25f;
+  int height_change_confirmations_ = 5;
+  float height_change_consistency_m_ = 0.08f;
+  float height_transition_alpha_ = 0.08f;
+  float height_transition_max_step_m_ = 0.02f;
   float height_publish_delta_m_ = 0.05f;
+  float height_change_candidate_m_ = 0.0f;
+  int height_change_candidate_count_ = 0;
+  bool height_change_candidate_initialized_ = false;
+  bool height_transition_active_ = false;
   float height_min_ground_quality_ = 0.35f;
   int height_min_ground_inliers_ = 50;
   float height_max_ground_tilt_deg_ = 8.0f;
