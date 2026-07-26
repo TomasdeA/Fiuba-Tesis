@@ -69,6 +69,18 @@ tesis-terminal
 
 ## Ejecución
 
+Las tres versiones de la pipeline se pueden iniciar dentro del contenedor con:
+
+```bash
+nav-start-v0  # profundidad raw
+nav-start-v1  # profundidad filtrada
+nav-start-v2  # filtrada + mapa local + spatial awareness
+```
+
+Los comandos usan la cámara RealSense, la salida háptica en `/dev/ttyACM0`
+y dejan las visualizaciones desactivadas. `nav-start` se mantiene como alias
+compatible de `nav-start-v1`.
+
 Launch principal con cámara, pipeline básica y salida por hardware:
 
 ```bash
