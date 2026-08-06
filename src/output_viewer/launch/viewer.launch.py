@@ -12,6 +12,7 @@ def generate_launch_description():
     use_signal_monitor = LaunchConfiguration('use_signal_monitor')
     use_rviz = LaunchConfiguration('use_rviz')
     use_odometry_path = LaunchConfiguration('use_odometry_path')
+    odom_source = LaunchConfiguration('odom_source')
     flip_rows_for_display = LaunchConfiguration('flip_rows_for_display')
     pygame_view_mode = LaunchConfiguration('pygame_view_mode')
     h_aperture_deg = LaunchConfiguration('h_aperture_deg')
@@ -65,6 +66,9 @@ def generate_launch_description():
         name='odometry_path',
         output='screen',
         condition=IfCondition(use_odometry_path),
+        parameters=[{
+            'odom_source': odom_source,
+        }],
     )
 
     rviz = ExecuteProcess(
@@ -93,6 +97,12 @@ def generate_launch_description():
             'use_odometry_path',
             default_value='false',
             description='Launch odometry path diagnostic node',
+        ),
+        DeclareLaunchArgument(
+            'odom_source',
+            default_value='nav_odom',
+            choices=['nav_odom', 'rtabmap_odom'],
+            description='Odometry convention used by nav_odom',
         ),
         DeclareLaunchArgument(
             'flip_rows_for_display',
