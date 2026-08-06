@@ -55,4 +55,12 @@ install(DIRECTORY config launch
   OPTIONAL
 )
 
+# ── Tests ───────────────────────────────────────────────────────────────────────────────
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+
+  ament_add_gtest(test_occupancy_mapper test/test_occupancy_mapper.cpp)
+  target_link_libraries(test_occupancy_mapper local_mapper_lib)
+endif()
+
 ament_package()
