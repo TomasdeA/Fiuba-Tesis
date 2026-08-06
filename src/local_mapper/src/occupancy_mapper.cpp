@@ -196,6 +196,14 @@ void OccupancyMapper::update(const std::vector<Point2D>& obstacle_pts,
   std::vector<bool> free_updated(
       static_cast<std::size_t>(cfg_.grid_size * cfg_.grid_size), false);
 
+  // La nube puede contener muchos puntos que proyectan sobre una misma celda.
+  // Procesar cada endpoint discreto una sola vez evita multiplicar l_occ y
+  // repetir el mismo trazado de Bresenham dentro de un fotograma.
+  const auto cell_count =
+      static_cast<std::size_t>(cfg_.grid_size * cfg_.grid_size);
+  std::vector<bool> occupied_endpoints(cell_count, false);
+  std::vector<bool> free_endpoints(cell_count, false);
+
   for (const auto& pt : obstacle_pts) {
     // Distancia horizontal al sensor (plano XZ).
     const float dx = pt.x - sensor_x;
@@ -205,6 +213,11 @@ void OccupancyMapper::update(const std::vector<Point2D>& obstacle_pts,
     // Celda del obstáculo.
     int obs_ci, obs_cj;
     if (!worldToCell(pt.x, pt.z, obs_ci, obs_cj)) continue;
+
+    const auto obs_idx =
+        static_cast<std::size_t>(obs_ci * cfg_.grid_size + obs_cj);
+    if (occupied_endpoints[obs_idx]) continue;
+    occupied_endpoints[obs_idx] = true;
 
     // ── Observación ocupada ──────────────────────────────────────────────────
     updateCell(obs_ci, obs_cj, cfg_.l_occ);
@@ -238,6 +251,11 @@ void OccupancyMapper::update(const std::vector<Point2D>& obstacle_pts,
     int end_ci, end_cj;
     if (!worldToCell(pt.x, pt.z, end_ci, end_cj)) continue;  // fuera del grid
 
+    const auto end_idx =
+        static_cast<std::size_t>(end_ci * cfg_.grid_size + end_cj);
+    if (free_endpoints[end_idx]) continue;
+    free_endpoints[end_idx] = true;
+
     if (cfg_.enable_raycasting) {
       // Celdas intermedias (excluye endpoint).
       castRay(sensor_ci, sensor_cj, end_ci, end_cj,
@@ -250,8 +268,6 @@ void OccupancyMapper::update(const std::vector<Point2D>& obstacle_pts,
                 }
               });
       // Celda del endpoint: también libre (no hay obstáculo aquí).
-      const auto end_idx =
-          static_cast<std::size_t>(end_ci * cfg_.grid_size + end_cj);
       if (!free_updated[end_idx]) {
         updateCell(end_ci, end_cj, cfg_.l_free);
         free_updated[end_idx] = true;
