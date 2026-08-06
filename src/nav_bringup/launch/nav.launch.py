@@ -428,6 +428,9 @@ def generate_launch_description():
         name='odometry_path',
         output='screen',
         condition=IfCondition(use_rviz),
+        parameters=[{
+            'odom_source': odom_source,
+        }],
     )
 
     # ── rosbag_controller (always launched) ──────────────────────────────────
