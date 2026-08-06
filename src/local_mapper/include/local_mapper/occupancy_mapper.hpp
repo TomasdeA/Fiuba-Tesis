@@ -51,19 +51,22 @@ class OccupancyMapper {
     float cell_size_m  = 0.10f;
 
     /// Número de celdas por lado (el mapa cubre cell_size_m × grid_size metros
-    /// en X y en Z, centrado en el origen del marco odom).
-    int   grid_size    = 200;
+    /// en X y en Z). La ventana se mantiene centrada en la posición del sensor.
+    int   grid_size    = 100;
 
     /// Incremento de log-odds por observación ocupada.
     /// Corresponde a log P(occ|z=hit) / P(free|z=hit).
-    /// Valor por defecto: log(0.9/0.1) ≈ 2.197 (Elfes, 1989).
+    /// Valor inicial de diseño: log(0.9/0.1) ≈ 2.197.
+    /// La probabilidad 0.9 es configurable y debe calibrarse experimentalmente.
     float l_occ = 2.197f;
 
     /// Incremento de log-odds por observación libre (celda en el rayo).
-    /// Corresponde a log P(occ|z=free) / P(free|z=free) = log(0.3/0.7) < 0.
+    /// Valor inicial de diseño: log P(occ|z=free) / P(free|z=free)
+    /// = log(0.3/0.7) < 0. La probabilidad 0.3 es configurable y debe
+    /// calibrarse experimentalmente.
     /// El valor absoluto es menor que l_occ para que la ocupación se acumule
-    /// más rápido que se borra: una celda necesita ~2.6 lecturas libres para
-    /// desactivarse tras una única lectura ocupada.
+    /// más rápido que se borra: se necesitan ~2.6 incrementos libres para
+    /// compensar un incremento ocupado e invertir el signo del log-odds.
     float l_free = -0.847f;
 
     /// Límite inferior de acumulación (log-odds): P ≈ 0.67 %.

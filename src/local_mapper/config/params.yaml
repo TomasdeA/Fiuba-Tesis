@@ -3,11 +3,14 @@ local_mapper:
     # ── OccupancyMapper ─────────────────────────────────────────────────
     # Tamaño de celda cuadrada de la rejilla (m)
     occupancy_cell_size_m: 0.10
-    # Número de celdas por lado (200 celdas x 0.10 m = 20 m x 20 m)
-    occupancy_grid_size: 200
-    # Incremento de log-odds por observación ocupada: log(0.9/0.1) ≈ 2.197
+    # Número de celdas por lado (100 celdas x 0.10 m = 10 m x 10 m).
+    # La ventana deslizante mantiene 5 m a cada lado de la cámara.
+    occupancy_grid_size: 100
+    # Valor inicial de diseño para una observación ocupada:
+    # log(0.9/0.1) ≈ 2.197. Debe calibrarse experimentalmente.
     occupancy_l_occ:  2.197
-    # Incremento de log-odds por observación libre: log(0.3/0.7) ≈ -0.847
+    # Valor inicial de diseño para una observación libre:
+    # log(0.3/0.7) ≈ -0.847. Debe calibrarse experimentalmente.
     occupancy_l_free: -0.847
     # Límites de acumulación
     occupancy_l_min: -5.0
@@ -15,7 +18,8 @@ local_mapper:
     # Distancia máxima al obstáculo incluida en la actualización (m) — definido en nav_bringup/config/sensor_range.yaml
     # Activa el ray casting de espacio libre (recomendado: true)
     occupancy_enable_raycasting: true
-    occupancy_forget_radius_m: 10.0
+    # Conserva memoria solo dentro de un radio de 5 m alrededor de la cámara.
+    occupancy_forget_radius_m: 5.0
     # Publicar cada actualización. La cámara opera a 6 Hz y spatial_awareness
     # necesita el mapa más reciente para estimar tiempo hasta colisión.
     occupancy_publish_every_n_frames: 1

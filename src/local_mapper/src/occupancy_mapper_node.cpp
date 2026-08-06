@@ -55,7 +55,7 @@ class OccupancyMapperNode : public rclcpp::Node {
     local_mapper::OccupancyMapper::Config om_cfg;
     om_cfg.cell_size_m       = static_cast<float>(
         declare_parameter<double>("occupancy_cell_size_m", 0.10));
-    om_cfg.grid_size         = declare_parameter<int>("occupancy_grid_size", 200);
+    om_cfg.grid_size         = declare_parameter<int>("occupancy_grid_size", 100);
     om_cfg.l_occ             = static_cast<float>(
         declare_parameter<double>("occupancy_l_occ",  2.197));
     om_cfg.l_free            = static_cast<float>(
