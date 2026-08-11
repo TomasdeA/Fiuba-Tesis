@@ -3,7 +3,7 @@
 //
 // Suscribe:  depth/image  (sensor_msgs/Image, 16UC1)
 //            depth/camera_info (sensor_msgs/CameraInfo)
-//            imu          (sensor_msgs/Imu) — acelerómetro para alinear a gravedad
+//            accel        (sensor_msgs/Imu) — acelerómetro para alinear a gravedad
 //
 // Publica:
 //   /depth_obstacle_filter/obstacle_cloud  — obstáculos locales en gravity_aligned_frame
@@ -153,9 +153,9 @@ class DepthObstacleFilterNode : public rclcpp::Node {
         "depth/camera_info", rclcpp::SensorDataQoS(),
         std::bind(&DepthObstacleFilterNode::onCameraInfo, this, _1));
 
-    imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(
-        "imu", rclcpp::SensorDataQoS(),
-        std::bind(&DepthObstacleFilterNode::onImu, this, _1));
+    accel_sub_ = create_subscription<sensor_msgs::msg::Imu>(
+        "accel", rclcpp::SensorDataQoS(),
+        std::bind(&DepthObstacleFilterNode::onAccel, this, _1));
 
     RCLCPP_INFO(get_logger(),
         "DepthObstacleFilterNode listo. range=[%.2f, %.2f]m debug=%s local_mapper_interface=%s",
@@ -293,7 +293,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
   }
 
   // ── Orientación por acelerómetro ─────────────────────────────────────────
-  void onImu(const sensor_msgs::msg::Imu::SharedPtr msg) {
+  void onAccel(const sensor_msgs::msg::Imu::SharedPtr msg) {
     if (!imu_filter_) return;
 
     const auto& a = msg->linear_acceleration;
@@ -775,7 +775,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
 
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr      depth_sub_;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr info_sub_;
-  rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr        imu_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr        accel_sub_;
 
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr    obstacle_pub_;
 
