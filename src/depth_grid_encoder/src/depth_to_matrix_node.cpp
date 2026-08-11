@@ -14,7 +14,7 @@ public:
     DepthToMatrix() : rclcpp::Node("depth_to_matrix_node")
     {
         depth_topic_ = this->declare_parameter<std::string>(
-            "depth_topic", "/sensors/depth/image");
+            "depth_topic", "/camera/camera/depth/image_rect_raw");
 
         grid_cfg_.rows  = static_cast<int>(this->declare_parameter<int>("rows", 5));
         grid_cfg_.cols  = static_cast<int>(this->declare_parameter<int>("cols", 10));
