@@ -31,7 +31,9 @@ services:
     volumes:
       - /dev:/dev
       - /dev/bus/usb:/dev/bus/usb
-      - /sys:/sys:ro
+      # El backend HID/IIO nativo de librealsense habilita los canales de
+      # lectura y configura los disparadores mediante sysfs al iniciar la IMU.
+      - /sys:/sys:rw
       - /run/udev:/run/udev:ro
       - /dev/gpiochip0:/dev/gpiochip0  # GPIO chip para rosbag_controller
       - ${HOST_WS}:${CONTAINER_WS}
