@@ -34,7 +34,12 @@ services:
       - /sys:/sys:ro
       - /run/udev:/run/udev:ro
       - /dev/gpiochip0:/dev/gpiochip0  # GPIO chip para rosbag_controller
+      # HOST_WS conserva la ruta local propia de la Raspberry.
       - ${HOST_WS}:${CONTAINER_WS}
+      # Recursos compartidos de la tesis, sin duplicar el workspace como nav_mapper.
+      - ${TESIS_ROOT}/docs:${TESIS_ROOT}/docs
+      - ${TESIS_ROOT}/tools:${TESIS_ROOT}/tools
+      - ${TESIS_ROOT}/bags:${TESIS_ROOT}/bags
       - ./docker/context.sh:/etc/profile.d/context.sh:ro
 
     working_dir: ${CONTAINER_WS}
