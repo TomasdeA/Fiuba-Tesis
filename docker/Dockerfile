@@ -34,40 +34,6 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
     python3-matplotlib python3-pygame \
     && rm -rf /var/lib/apt/lists/* ; \
     fi
-# === SOLO Raspi (arm64): build librealsense en /usr/local ===
-RUN if [ "$TARGETARCH" = "arm64" ]; then \
-    apt-get update && apt-get install -y --no-install-recommends \
-    git cmake build-essential pkg-config \
-    libusb-1.0-0-dev libudev-dev \
-    libgl1-mesa-dev libglu1-mesa-dev \
-    && rm -rf /var/lib/apt/lists/* \
-    && cd /tmp \
-    && git clone --depth 1 --branch v2.57.6 https://github.com/IntelRealSense/librealsense.git \
-    && cd librealsense \
-    && mkdir build && cd build \
-    && cmake .. \
-    -DFORCE_RSUSB_BACKEND=ON \
-    -DBUILD_EXAMPLES=OFF \
-    -DBUILD_GRAPHICAL_EXAMPLES=OFF \
-    -DBUILD_WITH_OPENMP=OFF \
-    && make -j2 \
-    && make install \
-    && ldconfig \
-    && rm -rf /tmp/librealsense ; \
-    fi
-
-# === SOLO Raspi (arm64): forzar que el wrapper de ROS use la librealsense nueva ===
-RUN if [ "$TARGETARCH" = "arm64" ]; then \
-    set -e; \
-    LATEST="$(ls -1 /usr/local/lib/librealsense2.so.2.*.* 2>/dev/null | sort -V | tail -n1)"; \
-    echo "Using $LATEST"; \
-    if [ -f /opt/ros/humble/lib/aarch64-linux-gnu/librealsense2.so.2.56 ]; then \
-    rm -f /opt/ros/humble/lib/aarch64-linux-gnu/librealsense2.so.2.56; \
-    fi; \
-    ln -sf "$LATEST" /opt/ros/humble/lib/aarch64-linux-gnu/librealsense2.so.2.56; \
-    ldconfig; \
-    fi
-
 # === Usuario dev ===
 ARG USERNAME=dev
 ARG USER_UID=1000
@@ -78,15 +44,9 @@ RUN groupadd --gid $USER_GID $USERNAME \
     && echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
 # === Shell init ===
-# /usr/local/bin y /usr/local/lib deben tener precedencia sobre los de ROS apt
-# para que librealsense buildeada desde source (v2.57.6, RSUSB backend) sea la
-# que usa el wrapper de ROS, tanto para binarios (rs-enumerate-devices, etc.)
-# como para la carga dinámica.
-ENV PATH="/usr/local/bin:${PATH}"
-ENV LD_LIBRARY_PATH="/usr/local/lib:${LD_LIBRARY_PATH}"
-RUN echo "source /opt/ros/humble/setup.bash" >> /etc/bash.bashrc && \
-    echo "export PATH=/usr/local/bin:\$PATH" >> /etc/bash.bashrc && \
-    echo "export LD_LIBRARY_PATH=/usr/local/lib:\$LD_LIBRARY_PATH" >> /etc/bash.bashrc
+# El paquete ROS instala el wrapper y librealsense con versiones compatibles.
+# En Raspi usa el backend V4L2 del kernel; el host debe cargar uvcvideo.
+RUN echo "source /opt/ros/humble/setup.bash" >> /etc/bash.bashrc
 ENV RUNNING_IN_CONTAINER=1
 RUN echo '[ -n "$WS_PATH" ] && [ -f "$WS_PATH/tools/dev/context_env.sh" ] && source "$WS_PATH/tools/dev/context_env.sh"' >> /etc/bash.bashrc
 

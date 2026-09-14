@@ -188,9 +188,52 @@ tesis-tmux4() {
   tmux attach -t "$name"
 }
 
-nav-start() {
-    source "$WS_ROOT/install/setup.bash";
-    ros2 launch nav_bringup nav.launch.py use_realsense:=true use_hw:=true hw_port:=/dev/ttyACM0 pipeline_mode:=raw use_perception:=false use_local_mapper:=false use_rviz:=false use_viz:=false; }
-nav-start-hw()     { ros2 launch nav_bringup nav.launch.py use_realsense:=true use_hw:=true hw_port:=/dev/ttyACM0 pipeline_mode:=raw use_perception:=false use_local_mapper:=false use_rviz:=false use_viz:=false; }
-nav-start-viz()    { ros2 launch nav_bringup nav.launch.py use_realsense:=true use_hw:=true hw_port:=/dev/ttyACM0 pipeline_mode:=raw use_perception:=false use_local_mapper:=false use_rviz:=false use_viz:=true; }
-nav-start-hw-viz() { ros2 launch nav_bringup nav.launch.py use_realsense:=true use_hw:=true hw_port:=/dev/ttyACM0 pipeline_mode:=raw use_perception:=false use_local_mapper:=false use_rviz:=false use_viz:=true; }
+_nav_start() {
+  _require_container || return 1
+
+  if [ ! -f "$WS_ROOT/install/setup.bash" ]; then
+    echo "No encuentro $WS_ROOT/install/setup.bash. Ejecutá colcon build primero." >&2
+    return 1
+  fi
+  source "$WS_ROOT/install/setup.bash"
+
+  ros2 launch nav_bringup nav.launch.py \
+    use_realsense:=true \
+    use_hw:=true \
+    hw_port:=/dev/ttyACM0 \
+    use_rviz:=false \
+    use_viz:=false \
+    "$@"
+}
+
+# V0: profundidad cruda -> DepthGrid -> HapticGrid.
+nav-start-v0() {
+  _nav_start \
+    pipeline_mode:=raw \
+    use_perception:=false \
+    use_local_mapper:=false \
+    use_spatial_awareness:=false \
+    "$@"
+}
+
+# V1: profundidad filtrada (alineación, remoción de suelo y obstáculos).
+nav-start-v1() {
+  _nav_start \
+    pipeline_mode:=filtered \
+    use_perception:=true \
+    use_local_mapper:=false \
+    use_spatial_awareness:=false \
+    "$@"
+}
+
+# V2: pipeline filtrada + mapa local + riesgos fuera del campo visual.
+# spatial_awareness requiere odometría RTAB-Map.
+nav-start-v2() {
+  _nav_start \
+    pipeline_mode:=filtered \
+    use_perception:=true \
+    use_local_mapper:=true \
+    odom_source:=rtabmap_odom \
+    use_spatial_awareness:=true \
+    "$@"
+}
