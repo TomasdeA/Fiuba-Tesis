@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <limits>
 
 namespace local_mapper {
 
@@ -159,7 +160,7 @@ void OccupancyMapper::shift(int shift_ci, int shift_cj)
 
 void OccupancyMapper::update(const std::vector<Point2D>& obstacle_pts,
                              float sensor_x, float sensor_z,
-                             const std::vector<Point2D>& free_ray_endpoints)
+                             const std::vector<Point2D>& ground_pts)
 {
   // Celda del sensor (origen del ray casting).
   int sensor_ci, sensor_cj;
@@ -202,7 +203,6 @@ void OccupancyMapper::update(const std::vector<Point2D>& obstacle_pts,
   const auto cell_count =
       static_cast<std::size_t>(cfg_.grid_size * cfg_.grid_size);
   std::vector<bool> occupied_endpoints(cell_count, false);
-  std::vector<bool> free_endpoints(cell_count, false);
 
   for (const auto& pt : obstacle_pts) {
     // Distancia horizontal al sensor (plano XZ).
@@ -222,56 +222,75 @@ void OccupancyMapper::update(const std::vector<Point2D>& obstacle_pts,
     // ── Observación ocupada ──────────────────────────────────────────────────
     updateCell(obs_ci, obs_cj, cfg_.l_occ);
 
-    // ── Ray casting: observación libre desde el sensor hasta el obstáculo ───
-    if (cfg_.enable_raycasting) {
-      castRay(sensor_ci, sensor_cj, obs_ci, obs_cj,
-              [this, &free_updated](int ci, int cj) {
-                const auto idx = static_cast<std::size_t>(ci * cfg_.grid_size + cj);
-                if (!free_updated[idx]) {
-                  updateCell(ci, cj, cfg_.l_free);
-                  free_updated[idx] = true;
-                }
-              });
-    }
   }
 
-  // ── Ray casting para rayos libres (sin obstáculo al final) ─────────────────
-  // Cubre dos casos que el bucle anterior no atiende:
-  //   1. Puntos más allá del rango máximo: el sensor midió z >= max_range_m;
-  //      no hay obstáculo en ese rayo dentro del rango de interés.
-  //   2. Puntos de suelo o techo: válidos en [min,max]_range pero no son
-  //      obstáculos para navegación; las celdas hasta ellos deben ser libres.
-  // Para cada endpoint se castea un rayo libre hasta la celda final inclusive
-  // (a diferencia del caso de obstáculo, donde la celda final es ocupada).
-  for (const auto& pt : free_ray_endpoints) {
+  // ── Evidencia directa de suelo ─────────────────────────────────────────────
+  for (const auto& pt : ground_pts) {
     const float dx = pt.x - sensor_x;
     const float dz = pt.z - sensor_z;
-    if (dx * dx + dz * dz > max_range2) continue;  // demasiado lejos: ignorar
+    if (dx * dx + dz * dz > max_range2) continue;
 
-    int end_ci, end_cj;
-    if (!worldToCell(pt.x, pt.z, end_ci, end_cj)) continue;  // fuera del grid
+    int ground_ci, ground_cj;
+    if (!worldToCell(pt.x, pt.z, ground_ci, ground_cj)) continue;
+    const auto idx = static_cast<std::size_t>(
+        ground_ci * cfg_.grid_size + ground_cj);
+    if (occupied_endpoints[idx] || free_updated[idx]) continue;
+    updateCell(ground_ci, ground_cj, cfg_.l_free);
+    free_updated[idx] = true;
+  }
 
-    const auto end_idx =
-        static_cast<std::size_t>(end_ci * cfg_.grid_size + end_cj);
-    if (free_endpoints[end_idx]) continue;
-    free_endpoints[end_idx] = true;
+  if (!cfg_.enable_raycasting || cfg_.raycast_angular_bins <= 0) return;
 
-    if (cfg_.enable_raycasting) {
-      // Celdas intermedias (excluye endpoint).
-      castRay(sensor_ci, sensor_cj, end_ci, end_cj,
-              [this, &free_updated](int ci, int cj) {
-                const auto idx =
-                    static_cast<std::size_t>(ci * cfg_.grid_size + cj);
-                if (!free_updated[idx]) {
-                  updateCell(ci, cj, cfg_.l_free);
-                  free_updated[idx] = true;
-                }
-              });
-      // Celda del endpoint: también libre (no hay obstáculo aquí).
-      if (!free_updated[end_idx]) {
-        updateCell(end_ci, end_cj, cfg_.l_free);
-        free_updated[end_idx] = true;
+  // ── Completar hasta el primer retorno de cada sector angular ───────────────
+  struct FirstReturn {
+    float distance2 = std::numeric_limits<float>::infinity();
+    int ci = 0;
+    int cj = 0;
+    bool valid = false;
+  };
+  std::vector<FirstReturn> first_returns(
+      static_cast<std::size_t>(cfg_.raycast_angular_bins));
+  constexpr float kPi = 3.14159265358979323846f;
+
+  const auto consider = [&](const Point2D& pt) {
+    const float dx = pt.x - sensor_x;
+    const float dz = pt.z - sensor_z;
+    const float distance2 = dx * dx + dz * dz;
+    if (distance2 > max_range2 || distance2 < 1e-8f) return;
+    int ci, cj;
+    if (!worldToCell(pt.x, pt.z, ci, cj)) return;
+    const float normalized = (std::atan2(dx, dz) + kPi) / (2.f * kPi);
+    const int bin = std::clamp(
+        static_cast<int>(normalized * cfg_.raycast_angular_bins),
+        0, cfg_.raycast_angular_bins - 1);
+    auto& current = first_returns[static_cast<std::size_t>(bin)];
+    if (!current.valid || distance2 < current.distance2) {
+      current = {distance2, ci, cj, true};
+    }
+  };
+  for (const auto& pt : ground_pts) consider(pt);
+  for (const auto& pt : obstacle_pts) consider(pt);
+
+  for (const auto& endpoint : first_returns) {
+    if (!endpoint.valid) continue;
+    int ci = sensor_ci;
+    int cj = sensor_cj;
+    const int dx = std::abs(endpoint.ci - ci);
+    const int dz = std::abs(endpoint.cj - cj);
+    const int sx = ci < endpoint.ci ? 1 : -1;
+    const int sz = cj < endpoint.cj ? 1 : -1;
+    int error = dx - dz;
+
+    while (ci != endpoint.ci || cj != endpoint.cj) {
+      const auto idx = static_cast<std::size_t>(ci * cfg_.grid_size + cj);
+      if (occupied_endpoints[idx]) break;
+      if (!free_updated[idx]) {
+        updateCell(ci, cj, cfg_.l_free);
+        free_updated[idx] = true;
       }
+      const int twice = 2 * error;
+      if (twice > -dz) { error -= dz; ci += sx; }
+      if (twice <  dx) { error += dx; cj += sz; }
     }
   }
 }

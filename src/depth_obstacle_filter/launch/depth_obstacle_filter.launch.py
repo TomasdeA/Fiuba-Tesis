@@ -84,7 +84,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'publish_local_mapper_interface',
             default_value='false',
-            description='Publicar free_endpoints locales para local_mapper',
+            description='Publicar evidencia de suelo para local_mapper',
         ),
         DeclareLaunchArgument(
             'performance',
