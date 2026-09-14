@@ -61,4 +61,39 @@ TEST(OccupancyMapper, RayStillMarksIntermediateCellsFree) {
   EXPECT_FLOAT_EQ(grid[cellIndex(7, 5, 10)], 1.0f);
 }
 
+TEST(OccupancyMapper, GroundCellIsDirectFreeEvidenceWithoutRaycasting) {
+  auto cfg = testConfig();
+  cfg.enable_raycasting = false;
+  Mapper mapper(cfg);
+  const std::vector<Mapper::Point2D> ground{{2.10f, 0.10f}};
+
+  mapper.update({}, 0.0f, 0.0f, ground);
+
+  const auto& grid = mapper.logOdds();
+  EXPECT_FLOAT_EQ(grid[cellIndex(7, 5, 10)], -0.25f);
+  EXPECT_FLOAT_EQ(grid[cellIndex(6, 5, 10)], 0.0f);
+}
+
+TEST(OccupancyMapper, OccupiedHasPriorityWhenGroundFallsInSameCell) {
+  Mapper mapper(testConfig());
+  const std::vector<Mapper::Point2D> obstacles{{2.10f, 0.10f}};
+  const std::vector<Mapper::Point2D> ground{{2.20f, 0.20f}};
+
+  mapper.update(obstacles, 0.0f, 0.0f, ground);
+
+  EXPECT_FLOAT_EQ(mapper.logOdds()[cellIndex(7, 5, 10)], 1.0f);
+}
+
+TEST(OccupancyMapper, GroundBehindObstacleRemainsDirectlyFree) {
+  Mapper mapper(testConfig());
+  const std::vector<Mapper::Point2D> obstacles{{2.10f, 0.10f}};
+  const std::vector<Mapper::Point2D> ground{{3.10f, 0.10f}};
+
+  mapper.update(obstacles, 0.0f, 0.0f, ground);
+
+  const auto& grid = mapper.logOdds();
+  EXPECT_FLOAT_EQ(grid[cellIndex(7, 5, 10)], 1.0f);
+  EXPECT_FLOAT_EQ(grid[cellIndex(8, 5, 10)], -0.25f);
+}
+
 }  // namespace

@@ -18,6 +18,8 @@ local_mapper:
     # Distancia máxima al obstáculo incluida en la actualización (m) — definido en nav_bringup/config/sensor_range.yaml
     # Activa el ray casting de espacio libre (recomendado: true)
     occupancy_enable_raycasting: true
+    # Sectores usados para completar desde el sensor hasta el primer retorno.
+    occupancy_raycast_angular_bins: 360
     # Conserva memoria solo dentro de un radio de 5 m alrededor de la cámara.
     occupancy_forget_radius_m: 5.0
     # Publicar cada actualización. La cámara opera a 6 Hz y spatial_awareness

@@ -6,7 +6,7 @@
 //
 // Suscribe:
 //   /depth_obstacle_filter/obstacle_cloud  — obstáculos en gravity_aligned_frame
-//   /depth_obstacle_filter/free_endpoints  — rayos libres en gravity_aligned_frame
+//   /depth_obstacle_filter/ground_evidence — suelo observado en gravity_aligned_frame
 //   nav_odom                               — pose usada para llevar datos a odom
 //   /depth_obstacle_filter/camera_height   — altura de piso para RViz
 //
@@ -14,7 +14,7 @@
 //   /local_mapper/occupancy_grid  — nav_msgs/OccupancyGrid en frame "odom"
 //
 // Sincronización:
-//   obstacle_cloud y free_endpoints se sincronizan por stamp del frame de
+//   obstacle_cloud y ground_evidence se sincronizan por stamp del frame de
 //   profundidad. La odometría se cachea y se busca la pose más reciente no
 //   posterior al frame para transformar las observaciones locales a odom.
 //
@@ -69,6 +69,8 @@ class OccupancyMapperNode : public rclcpp::Node {
     om_cfg.forget_radius_m   = static_cast<float>(
         declare_parameter<double>("occupancy_forget_radius_m", 5.0));
     om_cfg.enable_raycasting = declare_parameter<bool>("occupancy_enable_raycasting", true);
+    om_cfg.raycast_angular_bins =
+        declare_parameter<int>("occupancy_raycast_angular_bins", 360);
     occupancy_mapper_ = std::make_unique<local_mapper::OccupancyMapper>(om_cfg);
 
     odom_source_ = declare_parameter<std::string>("odom_source", "nav_odom");
@@ -94,12 +96,12 @@ class OccupancyMapperNode : public rclcpp::Node {
     constexpr int kQueueDepth = 10;
     obstacle_sub_.subscribe(this, "/depth_obstacle_filter/obstacle_cloud",
                             rclcpp::QoS(kQueueDepth).get_rmw_qos_profile());
-    free_sub_.subscribe(this, "/depth_obstacle_filter/free_endpoints",
+    ground_sub_.subscribe(this, "/depth_obstacle_filter/ground_evidence",
                         rclcpp::QoS(kQueueDepth).get_rmw_qos_profile());
 
     sync_ = std::make_shared<Synchronizer>(
         SyncPolicy(kQueueDepth),
-        obstacle_sub_, free_sub_);
+        obstacle_sub_, ground_sub_);
     sync_->registerCallback(
         std::bind(&OccupancyMapperNode::onSync, this,
                   std::placeholders::_1,
@@ -210,7 +212,7 @@ class OccupancyMapperNode : public rclcpp::Node {
   // ── Callback principal (ExactTimeSynchronizer) ───────────────────────────
   void onSync(
       const Cloud::ConstSharedPtr& obstacle_cloud,
-      const Cloud::ConstSharedPtr& free_endpoints)
+      const Cloud::ConstSharedPtr& ground_evidence)
   {
     OdomSample odom;
     if (!lookupOdom(rclcpp::Time(obstacle_cloud->header.stamp), odom)) {
@@ -264,10 +266,10 @@ class OccupancyMapperNode : public rclcpp::Node {
     };
 
     const auto occ_pts  = decodeCloud(*obstacle_cloud);
-    const auto free_pts = decodeCloud(*free_endpoints);
+    const auto ground_pts = decodeCloud(*ground_evidence);
 
     // ── Actualizar mapa ──────────────────────────────────────────────────────
-    occupancy_mapper_->update(occ_pts, sx, sz, free_pts);
+    occupancy_mapper_->update(occ_pts, sx, sz, ground_pts);
 
     // ── Publicar OccupancyGrid con la cadencia configurada ───────────────────
     ++occ_frame_count_;
@@ -312,7 +314,7 @@ class OccupancyMapperNode : public rclcpp::Node {
   std::unique_ptr<local_mapper::OccupancyMapper> occupancy_mapper_;
 
   message_filters::Subscriber<Cloud> obstacle_sub_;
-  message_filters::Subscriber<Cloud> free_sub_;
+  message_filters::Subscriber<Cloud> ground_sub_;
   std::shared_ptr<Synchronizer>      sync_;
 
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;

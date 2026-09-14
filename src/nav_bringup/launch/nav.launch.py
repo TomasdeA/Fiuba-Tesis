@@ -275,7 +275,7 @@ def generate_launch_description():
 
     # ── depth_obstacle_filter: depth + IMU → obstacle_cloud ──
     # Proyecta la imagen de profundidad, alinea con gravedad, detecta el suelo
-    # (RANSAC) y publica obstacle_cloud + free_endpoints locales.
+    # (RANSAC) y publica obstacle_cloud + ground_evidence locales.
     depth_obstacle_filter = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(depth_obstacle_filter_launch),
         launch_arguments={
