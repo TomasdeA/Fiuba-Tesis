@@ -45,8 +45,10 @@ def generate_launch_description():
             executable='depth_obstacle_filter_node',
             name='depth_obstacle_filter',
             parameters=[
-                params_file,
                 {
+                    # Merge before passing to ROS: a node-specific YAML entry
+                    # can override a later wildcard parameter file in Humble.
+                    **ros_params,
                     'range_min_m': depth_min,
                     'range_max_m': depth_max,
                     'debug': context.launch_configurations.get('debug', 'false').lower() == 'true',
