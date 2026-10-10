@@ -96,4 +96,41 @@ TEST(OccupancyMapper, GroundBehindObstacleRemainsDirectlyFree) {
   EXPECT_FLOAT_EQ(grid[cellIndex(8, 5, 10)], -0.25f);
 }
 
+TEST(OccupancyMapper, RayCannotEraseRememberedObstacleOrClearBehindIt) {
+  Mapper mapper(testConfig());
+  mapper.update({{2.10f, 0.10f}}, 0.0f, 0.0f);
+  for (int i = 0; i < 12; ++i) {
+    // A farther return is not evidence that the old obstacle's 3D volume
+    // disappeared: the projected ray may have passed above or below it.
+    mapper.update({{4.10f, 0.10f}}, 0.0f, 0.0f);
+  }
+  const auto& grid = mapper.logOdds();
+  EXPECT_FLOAT_EQ(grid[cellIndex(7, 5, 10)], 1.0f);
+  EXPECT_FLOAT_EQ(grid[cellIndex(8, 5, 10)], 0.0f);
+  EXPECT_LT(grid[cellIndex(6, 5, 10)], 0.0f);
+  EXPECT_GT(grid[cellIndex(9, 5, 10)], 0.0f);
+}
+
+TEST(OccupancyMapper, DirectGroundBehindRememberedObstacleIsStillIntegrated) {
+  Mapper mapper(testConfig());
+  mapper.update({{2.10f, 0.10f}}, 0.0f, 0.0f);
+  mapper.update({}, 0.0f, 0.0f, {{4.10f, 0.10f}});
+  const auto& grid = mapper.logOdds();
+  EXPECT_FLOAT_EQ(grid[cellIndex(7, 5, 10)], 1.0f);
+  EXPECT_FLOAT_EQ(grid[cellIndex(8, 5, 10)], 0.0f);
+  EXPECT_FLOAT_EQ(grid[cellIndex(9, 5, 10)], -0.25f);
+}
+
+TEST(OccupancyMapper, DirectGroundCanClearRememberedObstacleAndReleaseRay) {
+  Mapper mapper(testConfig());
+  mapper.update({{2.10f, 0.10f}}, 0.0f, 0.0f);
+  for (int i = 0; i < 4; ++i) {
+    mapper.update({}, 0.0f, 0.0f, {{2.10f, 0.10f}});
+  }
+  EXPECT_FLOAT_EQ(mapper.logOdds()[cellIndex(7, 5, 10)], 0.0f);
+  mapper.update({{4.10f, 0.10f}}, 0.0f, 0.0f);
+  EXPECT_LT(mapper.logOdds()[cellIndex(7, 5, 10)], 0.0f);
+  EXPECT_LT(mapper.logOdds()[cellIndex(8, 5, 10)], 0.0f);
+}
+
 }  // namespace

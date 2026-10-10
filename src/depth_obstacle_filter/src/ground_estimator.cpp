@@ -187,6 +187,16 @@ bool GroundEstimator::estimate(const std::vector<Point3D>& cloud) {
   if (cfg_.enable_plane_cache && last_good_plane_.valid) {
     ground_plane_ = scoreCachedPlane(cloud, tol);
     if (ground_plane_.valid) {
+      // Update the plane in the current local frame instead of freezing its
+      // coefficients while the camera moves. Keep the classification tolerance.
+      struct timespec t_cached_refine;
+      if (collect_perf) clock_gettime(CLOCK_MONOTONIC, &t_cached_refine);
+      ground_plane_ = stage6_refine(cloud, ground_plane_, tol);
+      if (collect_perf) perf_.time_refine_ms = elapsedMs(t_cached_refine);
+      ground_plane_.valid = stage5_validate(ground_plane_);
+    }
+    if (ground_plane_.valid) {
+      last_good_plane_ = ground_plane_;
       if (collect_perf) perf_.time_total_ms = elapsedMs(t_total);
       perf_.n_inliers = ground_plane_.n_inliers;
       perf_.used_cached_plane = true;
@@ -383,9 +393,9 @@ GroundEstimator::Plane GroundEstimator::scoreCachedPlane(
   for (const auto& p : cloud) {
     if (p.y < cfg_.min_person_height_m) continue;
     ++floor_candidates;
-    const float r = std::sqrt(p.x*p.x + p.y*p.y + p.z*p.z);
-    const float eps = std::max(tol, cfg_.floor_noise_k * r);
-    if (std::abs(pointPlaneDist(p, last_good_plane_)) < eps) {
+    // Cache acceptance must match stage7: otherwise a plane can pass the
+    // range-expanded RANSAC tolerance while its floor points become obstacles.
+    if (std::abs(pointPlaneDist(p, last_good_plane_)) < tol) {
       ++inliers;
     }
   }
