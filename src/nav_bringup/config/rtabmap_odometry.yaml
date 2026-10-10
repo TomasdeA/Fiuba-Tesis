@@ -12,7 +12,6 @@ rgbd_odometry:
     Vis/MaxDepth: '4.0'
     Vis/MinInliers: '15'
     Vis/FeatureType: '8'
-    # Validated together on the R03 RGB-D bags; see tools/experiments/README.md.
     # Detection at a coarser scale and a spatial quota improve usable matches.
     Odom/ImageDecimation: '2'
     Vis/MaxFeatures: '1500'
