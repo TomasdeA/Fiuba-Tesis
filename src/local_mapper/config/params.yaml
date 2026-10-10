@@ -25,3 +25,7 @@ local_mapper:
     # Publicar cada actualización. La cámara opera a 6 Hz y spatial_awareness
     # necesita el mapa más reciente para estimar tiempo hasta colisión.
     occupancy_publish_every_n_frames: 1
+    # Espera máxima por odometría pendiente (tiempo monotónico, segundos).
+    occupancy_odom_wait_s: 0.35
+    # Intervalo máximo entre poses para interpolar; no se extrapola.
+    occupancy_odom_max_gap_s: 0.20

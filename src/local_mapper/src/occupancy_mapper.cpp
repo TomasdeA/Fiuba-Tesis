@@ -283,7 +283,13 @@ void OccupancyMapper::update(const std::vector<Point2D>& obstacle_pts,
 
     while (ci != endpoint.ci || cj != endpoint.cj) {
       const auto idx = static_cast<std::size_t>(ci * cfg_.grid_size + cj);
-      if (occupied_endpoints[idx]) break;
+      // A projected 2D ray does not establish visibility of the whole vertical
+      // column. In particular it may pass above/below a remembered obstacle
+      // that is absent from this frame's obstacle cloud. Stop at positive
+      // occupancy instead of erasing it (or clearing unobserved cells behind
+      // it). Direct ground evidence is integrated separately above and can
+      // contradict the memory until this cell is no longer occupied.
+      if (occupied_endpoints[idx] || grid_[idx] > 0.0f) break;
       if (!free_updated[idx]) {
         updateCell(ci, cj, cfg_.l_free);
         free_updated[idx] = true;

@@ -84,9 +84,10 @@ class OccupancyMapper {
     /// Poner en 0 para deshabilitar.
     float forget_radius_m = 5.0f;
 
-    /// Activa el ray casting de espacio libre entre el sensor y cada obstáculo.
-    /// Desactivar solo para depuración (sin ray casting el mapa acumula
-    /// ocupación sin nunca decrementar las celdas libres).
+    /// Completa espacio libre hasta el primer retorno de cada sector angular.
+    /// El recorrido se detiene también ante ocupación recordada (log-odds > 0).
+    /// La evidencia directa de suelo sigue actualizando sus celdas incluso
+    /// cuando el raycasting está deshabilitado.
     bool  enable_raycasting = true;
 
     /// Cantidad de sectores horizontales usados para completar el espacio

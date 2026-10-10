@@ -15,8 +15,8 @@
 //
 // Sincronización:
 //   obstacle_cloud y ground_evidence se sincronizan por stamp del frame de
-//   profundidad. La odometría se cachea y se busca la pose más reciente no
-//   posterior al frame para transformar las observaciones locales a odom.
+//   profundidad. Se espera la pose exacta o dos poses cercanas que encierren
+//   el sello de la nube; se interpola posición/yaw, sin extrapolar.
 //
 // Formato de las nubes de entrada:
 //   PointCloud2 unordered (height=1), puntos de 12 bytes (float32 x, y, z).
@@ -26,6 +26,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <algorithm>
 #include <deque>
+#include <chrono>
 #include <nav_math/nav_math.hpp>
 #include <limits>
 #include <cmath>
@@ -42,6 +43,7 @@
 #include <message_filters/synchronizer.h>
 
 #include "local_mapper/occupancy_mapper.hpp"
+#include "local_mapper/timed_pose_buffer.hpp"
 
 using Cloud = sensor_msgs::msg::PointCloud2;
 using SyncPolicy =
@@ -72,6 +74,16 @@ class OccupancyMapperNode : public rclcpp::Node {
     om_cfg.raycast_angular_bins =
         declare_parameter<int>("occupancy_raycast_angular_bins", 360);
     occupancy_mapper_ = std::make_unique<local_mapper::OccupancyMapper>(om_cfg);
+
+    odom_wait_s_ = declare_parameter<double>("occupancy_odom_wait_s", 0.35);
+    const double gap_s = declare_parameter<double>("occupancy_odom_max_gap_s", 0.20);
+    if (!std::isfinite(odom_wait_s_) || odom_wait_s_ <= 0.0 ||
+        !std::isfinite(gap_s) || gap_s <= 0.0) {
+      throw std::invalid_argument("odometry wait and gap must be finite and positive");
+    }
+    odom_max_gap_ns_ = static_cast<int64_t>(gap_s * 1e9);
+    pending_timer_ = create_wall_timer(std::chrono::milliseconds(20),
+        std::bind(&OccupancyMapperNode::drainPending, this));
 
     odom_source_ = declare_parameter<std::string>("odom_source", "nav_odom");
     if (odom_source_ != "nav_odom" && odom_source_ != "rtabmap_odom") {
@@ -163,10 +175,9 @@ class OccupancyMapperNode : public rclcpp::Node {
       q_yaw = {std::cos(hy), 0.f, std::sin(hy), 0.f};
     }
 
-    odom_buffer_.push_back({rclcpp::Time(msg->header.stamp), pos_x, pos_z, q_yaw});
-    while (odom_buffer_.size() > 200) {
-      odom_buffer_.pop_front();
-    }
+    odom_buffer_.insert({rclcpp::Time(msg->header.stamp).nanoseconds(), pos_x, pos_z,
+        2.0 * std::atan2(q_yaw.y, q_yaw.w)});
+    drainPending();
     publishGravityAlignedTf(msg->header.stamp, pos_x, pos_z, q_yaw);
   }
 
@@ -190,37 +201,64 @@ class OccupancyMapperNode : public rclcpp::Node {
     tf_br_->sendTransform(tf_msg);
   }
 
-  bool lookupOdom(const rclcpp::Time& stamp, OdomSample& out) const {
-    if (odom_buffer_.empty()) return false;
+  struct PendingFrame {
+    Cloud::ConstSharedPtr obstacle, ground;
+    std::chrono::steady_clock::time_point received;
+  };
 
-    const OdomSample* best = nullptr;
-    for (const auto& sample : odom_buffer_) {
-      if (sample.stamp <= stamp) {
-        best = &sample;
-      } else {
-        break;
-      }
+  void onSync(const Cloud::ConstSharedPtr& obstacle,
+              const Cloud::ConstSharedPtr& ground) {
+    const auto stamp = rclcpp::Time(obstacle->header.stamp).nanoseconds();
+    // Keep integration chronological; a late frame must not move the map back.
+    if (stamp <= last_processed_ns_) return;
+    auto it = std::lower_bound(pending_.begin(), pending_.end(), stamp,
+        [](const PendingFrame& p, int64_t t) {
+          return rclcpp::Time(p.obstacle->header.stamp).nanoseconds() < t;
+        });
+    if (it != pending_.end() &&
+        rclcpp::Time(it->obstacle->header.stamp).nanoseconds() == stamp) return;
+    pending_.insert(it, {obstacle, ground, std::chrono::steady_clock::now()});
+    while (pending_.size() > 30) {
+      pending_.pop_front();
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+          "Cola temporal llena: se descarta la observacion mas antigua");
     }
-
-    if (!best) {
-      best = &odom_buffer_.front();
-    }
-    out = *best;
-    return true;
+    drainPending();
   }
 
-  // ── Callback principal (ExactTimeSynchronizer) ───────────────────────────
-  void onSync(
-      const Cloud::ConstSharedPtr& obstacle_cloud,
-      const Cloud::ConstSharedPtr& ground_evidence)
-  {
-    OdomSample odom;
-    if (!lookupOdom(rclcpp::Time(obstacle_cloud->header.stamp), odom)) {
-      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
-          "Sin odometría: se descarta frame local_mapper");
-      return;
+  void drainPending() {
+    while (!pending_.empty()) {
+      const auto& frame = pending_.front();
+      const int64_t stamp = rclcpp::Time(frame.obstacle->header.stamp).nanoseconds();
+      local_mapper::TimedPoseBuffer::Pose pose{};
+      const auto status = odom_buffer_.lookup(stamp, odom_max_gap_ns_, pose);
+      const double waited = std::chrono::duration<double>(
+          std::chrono::steady_clock::now() - frame.received).count();
+      if (status != local_mapper::TimedPoseBuffer::Status::Ready) {
+        if (status == local_mapper::TimedPoseBuffer::Status::Pending &&
+            waited < odom_wait_s_) return;
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+            "Sin pose temporal valida: se descarta observacion (estado=%d, espera=%.3fs)",
+            static_cast<int>(status), waited);
+        last_processed_ns_ = stamp;
+        pending_.pop_front();
+        continue;
+      }
+      OdomSample odom;
+      odom.stamp = rclcpp::Time(frame.obstacle->header.stamp);
+      odom.x = static_cast<float>(pose.x);
+      odom.z = static_cast<float>(pose.z);
+      odom.yaw = {static_cast<float>(std::cos(pose.yaw*.5)), 0.f,
+                  static_cast<float>(std::sin(pose.yaw*.5)), 0.f};
+      integrateFrame(frame.obstacle, frame.ground, odom);
+      last_processed_ns_ = stamp;
+      pending_.pop_front();
     }
+  }
 
+  void integrateFrame(const Cloud::ConstSharedPtr& obstacle_cloud,
+                      const Cloud::ConstSharedPtr& ground_evidence,
+                      const OdomSample& odom) {
     const float sx = odom.x;
     const float sz = odom.z;
 
@@ -330,7 +368,12 @@ class OccupancyMapperNode : public rclcpp::Node {
   float shift_accum_ci_ = 0.f;
   float shift_accum_cj_ = 0.f;
   float floor_height_m_ = 0.f;
-  std::deque<OdomSample> odom_buffer_;
+  local_mapper::TimedPoseBuffer odom_buffer_;
+  std::deque<PendingFrame> pending_;
+  rclcpp::TimerBase::SharedPtr pending_timer_;
+  double odom_wait_s_ = 0.35;
+  int64_t odom_max_gap_ns_ = 200000000;
+  int64_t last_processed_ns_ = std::numeric_limits<int64_t>::min();
   std::string odom_source_ = "nav_odom";
 
   int occ_frame_count_        = 0;
