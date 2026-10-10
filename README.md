@@ -56,7 +56,6 @@ tesis-run
 Dentro del contenedor:
 
 ```bash
-tesis-run
 colcon build
 source install/setup.bash
 ```
@@ -66,6 +65,57 @@ Para abrir otra terminal dentro del contenedor:
 ```bash
 tesis-terminal
 ```
+
+## Prueba en Raspberry Pi
+
+La rama `fix/raspi-librealsense-version` usa librealsense y el wrapper del
+paquete ROS, sin forzar una biblioteca compilada por separado. La cámara usa
+el backend del kernel: el host debe cargar `uvcvideo` y el contenedor monta
+`/sys` con escritura para que la IMU pueda configurar sus canales.
+
+En la Pi, el archivo local `.env` debe definir `HOST_WS` con la ruta de este
+repositorio, `CONTAINER_WS` con la ruta del workspace dentro del contenedor y
+`TESIS_ROOT` con la raíz que contiene los directorios compartidos `docs`,
+`tools` y `bags`. Esas rutas son propias de cada máquina.
+
+Después de actualizar la rama, ejecutar desde el repositorio en el host:
+
+```bash
+sudo modprobe uvcvideo
+docker compose -f docker-compose.raspi.yml config --quiet
+docker compose -f docker-compose.raspi.yml build
+source tools/dev/context_env.sh
+tesis-run
+```
+
+Reconstruir la imagen es necesario para aplicar el cambio de librealsense.
+Dentro del contenedor, compilar el workspace y cargarlo:
+
+```bash
+colcon build --parallel-workers 2
+source install/setup.bash
+```
+
+Probar `nav-start-v0 use_hw:=false` y después `nav-start-v1 use_hw:=false`,
+deteniendo cada ejecución con Ctrl+C. Para probar V2 con el mismo perfil de
+imágenes configurado en el servicio:
+
+```bash
+nav-start-v2 use_hw:=false performance:=true \
+  realsense_depth_profile:=424x240x6 \
+  realsense_color_profile:=424x240x6
+```
+
+Antes de integrar la rama en `develop`, comprobar en la Pi la recepción de
+profundidad e IMU, las TF entre cámara e IMU, la adaptación de altura al
+levantar la cámara y la continuidad de odometría/mapa con ese perfil. El nuevo
+perfil RTAB-Map reduce las imágenes a la mitad internamente; su seguimiento
+y costo de CPU deben evaluarse con la resolución usada en la Pi.
+
+El servicio `src/nav_bringup/scripts/nav-mapper.service` carga `uvcvideo`
+automáticamente. Si ya está instalado en el host, actualizar el archivo del
+servicio y revisar su `WS_PATH`: un cambio en el repositorio no actualiza la
+copia instalada en systemd.
 
 ## Ejecución
 

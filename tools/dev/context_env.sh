@@ -226,6 +226,9 @@ nav-start-v1() {
     "$@"
 }
 
+# Alias compatible con el comando documentado para la pipeline filtrada.
+nav-start() { nav-start-v1 "$@"; }
+
 # V2: pipeline filtrada + mapa local + riesgos fuera del campo visual.
 # spatial_awareness requiere odometría RTAB-Map.
 nav-start-v2() {
