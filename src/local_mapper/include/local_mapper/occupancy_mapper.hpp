@@ -51,19 +51,22 @@ class OccupancyMapper {
     float cell_size_m  = 0.10f;
 
     /// Número de celdas por lado (el mapa cubre cell_size_m × grid_size metros
-    /// en X y en Z, centrado en el origen del marco odom).
-    int   grid_size    = 200;
+    /// en X y en Z). La ventana se mantiene centrada en la posición del sensor.
+    int   grid_size    = 100;
 
     /// Incremento de log-odds por observación ocupada.
     /// Corresponde a log P(occ|z=hit) / P(free|z=hit).
-    /// Valor por defecto: log(0.9/0.1) ≈ 2.197 (Elfes, 1989).
+    /// Valor inicial de diseño: log(0.9/0.1) ≈ 2.197.
+    /// La probabilidad 0.9 es configurable y debe calibrarse experimentalmente.
     float l_occ = 2.197f;
 
     /// Incremento de log-odds por observación libre (celda en el rayo).
-    /// Corresponde a log P(occ|z=free) / P(free|z=free) = log(0.3/0.7) < 0.
+    /// Valor inicial de diseño: log P(occ|z=free) / P(free|z=free)
+    /// = log(0.3/0.7) < 0. La probabilidad 0.3 es configurable y debe
+    /// calibrarse experimentalmente.
     /// El valor absoluto es menor que l_occ para que la ocupación se acumule
-    /// más rápido que se borra: una celda necesita ~2.6 lecturas libres para
-    /// desactivarse tras una única lectura ocupada.
+    /// más rápido que se borra: se necesitan ~2.6 incrementos libres para
+    /// compensar un incremento ocupado e invertir el signo del log-odds.
     float l_free = -0.847f;
 
     /// Límite inferior de acumulación (log-odds): P ≈ 0.67 %.
@@ -81,10 +84,15 @@ class OccupancyMapper {
     /// Poner en 0 para deshabilitar.
     float forget_radius_m = 5.0f;
 
-    /// Activa el ray casting de espacio libre entre el sensor y cada obstáculo.
-    /// Desactivar solo para depuración (sin ray casting el mapa acumula
-    /// ocupación sin nunca decrementar las celdas libres).
+    /// Completa espacio libre hasta el primer retorno de cada sector angular.
+    /// El recorrido se detiene también ante ocupación recordada (log-odds > 0).
+    /// La evidencia directa de suelo sigue actualizando sus celdas incluso
+    /// cuando el raycasting está deshabilitado.
     bool  enable_raycasting = true;
+
+    /// Cantidad de sectores horizontales usados para completar el espacio
+    /// entre el sensor y el primer retorno de suelo u obstáculo.
+    int raycast_angular_bins = 360;
   };
 
   // ── Constructor ─────────────────────────────────────────────────────────────
@@ -100,15 +108,14 @@ class OccupancyMapper {
    * @param obstacle_pts        Puntos de obstáculo en el marco odom (plano XZ).
    * @param sensor_x            Posición X del sensor en el marco odom (m).
    * @param sensor_z            Posición Z del sensor en el marco odom (m).
-   * @param free_ray_endpoints  Extremos de rayos que no terminan en obstáculo
-   *                            (p. ej. puntos más allá del rango, suelo, techo).
-   *                            Se castea un rayo libre hasta cada endpoint,
-   *                            incluyendo la celda final (sin marcarla ocupada).
-   *                            Submuestre externamente para controlar la CPU.
+   * @param ground_pts Puntos de suelo observados. Sus celdas se actualizan
+   *                   directamente como libres. Si el raycasting está activo,
+   *                   suelo y obstáculos definen además el primer retorno de
+   *                   cada sector angular.
    */
   void update(const std::vector<Point2D>& obstacle_pts,
               float sensor_x, float sensor_z,
-              const std::vector<Point2D>& free_ray_endpoints = {});
+              const std::vector<Point2D>& ground_pts = {});
 
   /**
    * Desplaza el contenido de la rejilla (shift_ci, shift_cj) celdas y

@@ -1,0 +1,27 @@
+rgbd_odometry:
+  ros__parameters:
+    frame_id: camera_color_optical_frame
+    odom_frame_id: odom
+    # The perception node owns the TF chain consumed by local_mapper.
+    publish_tf: false
+    approx_sync: true
+    # Reject adjacent 30 Hz frames paired across a full frame interval.
+    approx_sync_max_interval: 0.01
+    wait_imu_to_init: true
+    always_check_imu_tf: false
+    Vis/MaxDepth: '4.0'
+    Vis/MinInliers: '15'
+    Vis/FeatureType: '8'
+    # Detection at a coarser scale and a spatial quota improve usable matches.
+    Odom/ImageDecimation: '2'
+    Vis/MaxFeatures: '1500'
+    Vis/GridRows: '3'
+    Vis/GridCols: '4'
+    Vis/PnPReprojError: '2'
+    OdomF2M/MaxSize: '6000'
+    Odom/Strategy: '0'
+    # Preserve a continuous reference frame: never conceal loss with a reset.
+    Odom/ResetCountdown: '0'
+    Odom/GuessMotion: 'true'
+    Odom/FilteringStrategy: '1'
+    Vis/DepthAsMask: 'true'

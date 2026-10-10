@@ -54,7 +54,7 @@ Visualization Manager:
       Style: Points
       Size (Pixels): 4
       Color Transformer: Flat Color
-      Color: 0; 204; 51
+      Color: 0; 0; 0
       Alpha: 1.0
       Decay Time: 0
 
@@ -156,7 +156,7 @@ Visualization Manager:
       Normalize Range: true
 
   Global Options:
-    Background Color: 40; 40; 40
+    Background Color: 255; 255; 255
     Fixed Frame: gravity_aligned_frame
     Frame Rate: 30
 

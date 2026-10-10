@@ -3,14 +3,14 @@
 //
 // Suscribe:  depth/image  (sensor_msgs/Image, 16UC1)
 //            depth/camera_info (sensor_msgs/CameraInfo)
-//            imu          (sensor_msgs/Imu) — acelerómetro para alinear a gravedad
+//            accel        (sensor_msgs/Imu) — acelerómetro para alinear a gravedad
 //
 // Publica:
 //   /depth_obstacle_filter/obstacle_cloud  — obstáculos locales en gravity_aligned_frame
 //                                            para obstacle_grid_encoder/heatmap
 //
 // Publica sólo con publish_local_mapper_interface=true:
-//   /depth_obstacle_filter/free_endpoints  — endpoints de rayos libres en gravity_aligned_frame
+//   /depth_obstacle_filter/ground_evidence — suelo observado en gravity_aligned_frame
 //
 // Publica sólo con debug=true:
 //   /depth_obstacle_filter/debug/depth_cloud   — nube cruda en camera_depth_optical_frame
@@ -135,8 +135,8 @@ class DepthObstacleFilterNode : public rclcpp::Node {
         "/depth_obstacle_filter/camera_height", rclcpp::QoS(1).transient_local());
 
     if (publish_local_mapper_interface_) {
-      free_endpoints_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
-          "/depth_obstacle_filter/free_endpoints", 10);
+      ground_evidence_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
+          "/depth_obstacle_filter/ground_evidence", 10);
     }
 
     if (debug_enabled_) {
@@ -162,9 +162,9 @@ class DepthObstacleFilterNode : public rclcpp::Node {
         "depth/camera_info", rclcpp::SensorDataQoS(),
         std::bind(&DepthObstacleFilterNode::onCameraInfo, this, _1));
 
-    imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(
-        "imu", rclcpp::SensorDataQoS(),
-        std::bind(&DepthObstacleFilterNode::onImu, this, _1));
+    accel_sub_ = create_subscription<sensor_msgs::msg::Imu>(
+        "accel", rclcpp::SensorDataQoS(),
+        std::bind(&DepthObstacleFilterNode::onAccel, this, _1));
 
     RCLCPP_INFO(get_logger(),
         "DepthObstacleFilterNode listo. range=[%.2f, %.2f]m debug=%s local_mapper_interface=%s",
@@ -352,7 +352,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
   }
 
   // ── Orientación por acelerómetro ─────────────────────────────────────────
-  void onImu(const sensor_msgs::msg::Imu::SharedPtr msg) {
+  void onAccel(const sensor_msgs::msg::Imu::SharedPtr msg) {
     if (!imu_filter_) return;
 
     const auto& a = msg->linear_acceleration;
@@ -393,8 +393,8 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     const bool has_height_subs =
         camera_height_pub_->get_subscription_count() > 0;
     const bool has_local_mapper_subs = publish_local_mapper_interface_ &&
-        free_endpoints_pub_ &&
-        free_endpoints_pub_->get_subscription_count() > 0;
+        ground_evidence_pub_ &&
+        ground_evidence_pub_->get_subscription_count() > 0;
     const bool has_debug_subs = debug_enabled_ &&
         ((cloud_pub_ && cloud_pub_->get_subscription_count() > 0) ||
          (raw_cloud_pub_ && raw_cloud_pub_->get_subscription_count() > 0) ||
@@ -424,12 +424,8 @@ class DepthObstacleFilterNode : public rclcpp::Node {
 
     // ── Filtrado de rango ─────────────────────────────────────────────────────
     // Puntos en [range_min_m_, range_max_m_) → 'valid' (obstáculos y suelo posibles).
-    // Puntos >= range_max_m_ → 'beyond_range_pts' submuestreados 1/16:
-    //   cubrían el FOV con ~1200 rayos para marcar espacio libre hasta el borde.
     std::vector<depth_obstacle_filter::DepthProjector::Point3D> valid;
     valid.reserve(points.size() / 4);
-    std::vector<depth_obstacle_filter::DepthProjector::Point3D> beyond_range_pts;
-    int beyond_stride_counter = 0;
     int nan_count = 0;
     int below_min_count = 0;
     int beyond_count = 0;
@@ -445,10 +441,6 @@ class DepthObstacleFilterNode : public rclcpp::Node {
       }
       if (pt.z >= range_max_m_) {
         ++beyond_count;
-        if (publish_local_mapper_interface_ &&
-            (beyond_stride_counter++ & 15) == 0) {
-          beyond_range_pts.push_back(pt);
-        }
         continue;
       }
       valid.push_back(pt);
@@ -515,7 +507,9 @@ class DepthObstacleFilterNode : public rclcpp::Node {
         if (perf_log_enabled_) t_obstacle_publish_ms = elapsedMs(t_stage);
       }
 
-      // ── Construir y publicar endpoints libres locales ─────────────────────
+      std::size_t ground_evidence_count = 0;
+
+      // ── Construir y publicar evidencia directa de suelo ──────────────────
       {
         if (perf_log_enabled_) clock_gettime(CLOCK_MONOTONIC, &t_stage);
 
@@ -524,28 +518,15 @@ class DepthObstacleFilterNode : public rclcpp::Node {
           local_hdr.stamp    = msg->header.stamp;
           local_hdr.frame_id = "gravity_aligned_frame";
 
-          // Endpoints de rayos libres → frame local (suelo + techo submuestreado
-          // 1/4, más puntos más allá del rango submuestreados 1/16).
-          std::vector<depth_obstacle_filter::DepthProjector::Point3D> free_local;
-
-          const auto addFreeFromIndices =
-              [&](const std::vector<int>& indices, int stride) {
-                for (int k = 0; k < static_cast<int>(indices.size());
-                     k += stride) {
-                  const auto& p = ge_cloud[indices[k]];
-                  free_local.push_back({p.x, 0.f, p.z});
-                }
-              };
-          addFreeFromIndices(ground_estimator_->groundIndices(),   4);
-          addFreeFromIndices(ground_estimator_->ceilingIndices(),  4);
-
-          for (const auto& pt : beyond_range_pts) {
-            const float scale = range_max_m_ / pt.z;
-            const nav_math::Vec3 p_gaf =
-                q_rp_.rotate({pt.x * scale, pt.y * scale, pt.z * scale});
-            free_local.push_back({p_gaf.x, 0.f, p_gaf.z});
+          std::vector<depth_obstacle_filter::DepthProjector::Point3D> ground_local;
+          const auto& ground_indices = ground_estimator_->groundIndices();
+          ground_local.reserve((ground_indices.size() + 3) / 4);
+          for (std::size_t k = 0; k < ground_indices.size(); k += 4) {
+            const auto& p = ge_cloud[static_cast<std::size_t>(ground_indices[k])];
+            ground_local.push_back({p.x, 0.f, p.z});
           }
-          publishCloud(free_endpoints_pub_, local_hdr, free_local);
+          ground_evidence_count = ground_local.size();
+          publishCloud(ground_evidence_pub_, local_hdr, ground_local);
         }
 
         if (perf_log_enabled_) {
@@ -577,7 +558,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
           perf_ext_.sum_age_ms += msg_age_ms;
           perf_ext_.sum_points_projected += points.size();
           perf_ext_.sum_valid += valid.size();
-          perf_ext_.sum_beyond += beyond_range_pts.size();
+          perf_ext_.sum_ground_evidence += ground_evidence_count;
           perf_ext_.sum_nan += nan_count;
           perf_ext_.sum_below_min += below_min_count;
           perf_ext_.sum_beyond_raw += beyond_count;
@@ -595,7 +576,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
             const double msg_age_ms =
                 (get_clock()->now() - msg_stamp).nanoseconds() / 1e6;
             RCLCPP_WARN(get_logger(),
-                "[empty_obstacles] streak=%d age=%.1fms projected=%zu valid=%zu nan=%d below_min=%d beyond_raw=%d beyond_kept=%zu ground_ok=%d ground=%zu ceiling=%zu",
+                "[empty_obstacles] streak=%d age=%.1fms projected=%zu valid=%zu nan=%d below_min=%d beyond_raw=%d ground_evidence=%zu ground_ok=%d ground=%zu ceiling=%zu",
                 empty_obstacle_streak_,
                 msg_age_ms,
                 points.size(),
@@ -603,7 +584,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
                 nan_count,
                 below_min_count,
                 beyond_count,
-                beyond_range_pts.size(),
+                ground_evidence_count,
                 ground_ok ? 1 : 0,
                 ground_count,
                 ceiling_count);
@@ -619,7 +600,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
           const double nf = static_cast<double>(perf_ext_.frames);
           const auto& a = perf_accum_;
           RCLCPP_INFO(get_logger(),
-              "[PERF %.1fs] frames=%d empty_obs=%d age=%.1fms | proj=%.2f/%.2fms range=%.2f/%.2fms ground=%.2f/%.2fms obs_pub=%.2f/%.2fms local_pub=%.2f/%.2fms total=%.2f/%.2fms | pts proj=%.0f valid=%.0f beyond=%.0f nan=%.0f below=%.0f beyond_raw=%.0f obs=%.0f ground=%.0f ceil=%.0f | GE total=%.2fms voxel=%.2fms ransac=%.2fms refine=%.2fms",
+              "[PERF %.1fs] frames=%d empty_obs=%d age=%.1fms | proj=%.2f/%.2fms range=%.2f/%.2fms ground=%.2f/%.2fms obs_pub=%.2f/%.2fms local_pub=%.2f/%.2fms total=%.2f/%.2fms | pts proj=%.0f valid=%.0f ground_evidence=%.0f nan=%.0f below=%.0f beyond_raw=%.0f obs=%.0f ground=%.0f ceil=%.0f | GE total=%.2fms voxel=%.2fms ransac=%.2fms refine=%.2fms",
               perf_log_period_s_,
               perf_ext_.frames,
               perf_ext_.empty_obstacle_frames,
@@ -633,7 +614,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
               perf_ext_.sum_total_ms / nf, perf_ext_.max_total_ms,
               static_cast<double>(perf_ext_.sum_points_projected) / nf,
               static_cast<double>(perf_ext_.sum_valid) / nf,
-              static_cast<double>(perf_ext_.sum_beyond) / nf,
+              static_cast<double>(perf_ext_.sum_ground_evidence) / nf,
               static_cast<double>(perf_ext_.sum_nan) / nf,
               static_cast<double>(perf_ext_.sum_below_min) / nf,
               static_cast<double>(perf_ext_.sum_beyond_raw) / nf,
@@ -804,7 +785,7 @@ class DepthObstacleFilterNode : public rclcpp::Node {
     double sum_age_ms = 0;
     uint64_t sum_points_projected = 0;
     uint64_t sum_valid = 0;
-    uint64_t sum_beyond = 0;
+    uint64_t sum_ground_evidence = 0;
     uint64_t sum_nan = 0;
     uint64_t sum_below_min = 0;
     uint64_t sum_beyond_raw = 0;
@@ -834,12 +815,12 @@ class DepthObstacleFilterNode : public rclcpp::Node {
 
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr      depth_sub_;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr info_sub_;
-  rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr        imu_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr        accel_sub_;
 
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr    obstacle_pub_;
 
   // Interface hacia local_mapper
-  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr    free_endpoints_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr    ground_evidence_pub_;
 
   // Debug / visualización
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_pub_;

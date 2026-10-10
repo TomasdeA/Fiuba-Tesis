@@ -29,11 +29,17 @@ Solo se consideran componentes de al menos `min_cluster_cells` celdas con
 ocupación mayor o igual a `occupancy_threshold`. Una celda genera riesgo si:
 
 - está fuera del FOV comunicado;
-- su distancia a la cámara está entre `min_distance_m` y `max_distance_m`;
+- su distancia libre hasta la circunferencia corporal (distancia al centro de
+  la celda menos `body_radius_m`) está entre `min_distance_m` y
+  `max_distance_m`;
 - intersecta el corredor definido por `body_radius_m`;
 - el usuario se mueve hacia ella por encima de
   `min_closing_speed_mps`; y
 - su TTC es menor que `ttc_max_s`.
+
+El TTC se calcula con esa distancia libre, por lo que representa el tiempo
+hasta que el obstáculo alcanza la circunferencia corporal y no el centro del
+usuario.
 
 La desactivación usa `closing_speed_hysteresis_mps` para evitar conmutaciones
 por ruido alrededor del umbral de velocidad de cierre.

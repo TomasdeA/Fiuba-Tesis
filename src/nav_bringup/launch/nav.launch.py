@@ -226,29 +226,7 @@ def generate_launch_description():
         name='rgbd_odometry',
         output='screen',
         condition=IfCondition(use_rtabmap_odom),
-        parameters=[{
-            'frame_id': 'camera_color_optical_frame',
-            'odom_frame_id': 'odom',
-            # depth_obstacle_filter publica la cadena TF usada por el mapper.
-            # Evita dos caminos odom->camera_* y ciclos con los TF estáticos
-            # publicados por realsense2_camera.
-            'publish_tf': False,
-            'approx_sync': True,
-            'approx_sync_max_interval': 0.08,
-            'use_imu': True,
-            'wait_imu_to_init': True,
-            'Vis/MaxDepth': '4.0',
-            'Vis/MinInliers': '15',
-            'Vis/FeatureType': '8',
-            'Vis/MaxFeatures': '600',
-            'OdomF2M/MaxSize': '3000',
-            'Odom/Strategy': '0',
-            'Odom/ResetCountdown': '0',
-            'Odom/GuessMotion': 'true',
-            'Odom/FilteringStrategy': '1',
-            'Vis/DepthAsMask': 'true',
-            'always_check_imu_tf': False,
-        }],
+        parameters=[LaunchConfiguration('rtabmap_odom_config')],
         remappings=[
             ('rgb/image', '/camera/camera/color/image_raw'),
             ('rgb/camera_info', '/camera/camera/color/camera_info'),
@@ -278,7 +256,7 @@ def generate_launch_description():
 
     # ── depth_obstacle_filter: depth + IMU → obstacle_cloud ──
     # Proyecta la imagen de profundidad, alinea con gravedad, detecta el suelo
-    # (RANSAC) y publica obstacle_cloud + free_endpoints locales.
+    # (RANSAC) y publica obstacle_cloud + ground_evidence locales.
     depth_obstacle_filter = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(depth_obstacle_filter_launch),
         launch_arguments={
@@ -431,6 +409,9 @@ def generate_launch_description():
         name='odometry_path',
         output='screen',
         condition=IfCondition(use_rviz),
+        parameters=[{
+            'odom_source': odom_source,
+        }],
     )
 
     # ── rosbag_controller (always launched) ──────────────────────────────────
@@ -474,6 +455,13 @@ def generate_launch_description():
     # ── Launch description ────────────────────────────────
     return LaunchDescription([
         # Arguments
+        DeclareLaunchArgument(
+            'rtabmap_odom_config',
+            default_value=PathJoinSubstitution([
+                FindPackageShare('nav_bringup'), 'config', 'rtabmap_odometry.yaml',
+            ]),
+            description='RTAB-Map RGB-D odometry parameters (ROS parameter YAML)',
+        ),
         DeclareLaunchArgument(
             'use_realsense',
             default_value='true',

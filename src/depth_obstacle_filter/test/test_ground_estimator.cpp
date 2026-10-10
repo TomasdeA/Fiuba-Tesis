@@ -195,3 +195,44 @@ TEST(GroundEstimator, ReutilizaPlanoCacheadoEnFrameEstable) {
   EXPECT_EQ(estimator.perfStats().ransac_iterations, 0);
   EXPECT_GT(static_cast<int>(estimator.groundIndices().size()), 100);
 }
+
+TEST(GroundEstimator, CacheMustNotAcceptFloorOutsideClassificationTolerance) {
+  GE::Config cfg;
+  cfg.enable_voxel_filter = false;
+  cfg.ransac_inlier_tol = .01f;
+  GE estimator(cfg);
+  auto first = makeFlatCloud(2000, 1.60f, .001f);
+  // At 3–6 m the old cache accepted a 4 cm shift (k*r), although stage7
+  // used only 1 cm and labelled the entire shifted floor as obstacle.
+  for (auto& p : first) p.z += 2.5f;
+  ASSERT_TRUE(estimator.estimate(first));
+  auto moved = first;
+  for (int i=0; i<2000; ++i) moved[i].y -= .04f;
+  ASSERT_TRUE(estimator.estimate(moved));
+  int floor_ground=0, real_obstacles=0;
+  for (int i : estimator.groundIndices()) if (i<2000) ++floor_ground;
+  for (int i : estimator.obstacleIndices()) if (i>=2000) ++real_obstacles;
+  EXPECT_GT(floor_ground,1900);
+  EXPECT_EQ(real_obstacles,50);
+  EXPECT_NEAR(estimator.cameraHeightM(),1.56f,.01f);
+}
+
+TEST(GroundEstimator, CachedPlaneTracksSmallChangesWithoutErasingLowObstacle) {
+  GE::Config cfg;
+  cfg.enable_voxel_filter = false;
+  cfg.ransac_inlier_tol = .01f;
+  GE estimator(cfg);
+  auto cloud = makeFlatCloud(2000,1.60f,.001f);
+  ASSERT_TRUE(estimator.estimate(cloud));
+  for (int frame=1; frame<=8; ++frame) {
+    auto moved=cloud;
+    for (int i=0; i<2000; ++i) moved[i].y -= frame*.004f;
+    // A distinct 10 cm high obstacle must survive the cache correction.
+    for (int i=2000; i<2050; ++i) moved[i].y=1.60f-frame*.004f-.10f;
+    ASSERT_TRUE(estimator.estimate(moved));
+    EXPECT_TRUE(estimator.perfStats().used_cached_plane);
+    EXPECT_NEAR(estimator.cameraHeightM(),1.60f-frame*.004f,.005f);
+    int obstacles=0;for (int i:estimator.obstacleIndices())if(i>=2000)++obstacles;
+    EXPECT_EQ(obstacles,50);
+  }
+}

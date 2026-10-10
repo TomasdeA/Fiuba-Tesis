@@ -99,7 +99,7 @@ TEST(RiskEvaluatorTest, EnforcesDistanceRange) {
   const auto too_close = evaluator.evaluate(forwardPose(), Vec2{0.5f, 0.0f},
                                             45.0f, verticalCluster(0.1f, 0.0f));
   const auto too_far = evaluator.evaluate(forwardPose(), Vec2{1.0f, 0.0f},
-                                          45.0f, verticalCluster(1.2f, 0.0f));
+                                          45.0f, verticalCluster(1.3f, 0.0f));
 
   EXPECT_FALSE(too_close.right.active);
   EXPECT_FALSE(too_far.right.active);
@@ -116,6 +116,35 @@ TEST(RiskEvaluatorTest, HigherClosingSpeedProducesHigherIntensity) {
   ASSERT_TRUE(slow.right.active);
   ASSERT_TRUE(fast.right.active);
   EXPECT_GT(fast.right.intensity, slow.right.intensity);
+}
+
+TEST(RiskEvaluatorTest, DistanceAndTtcEndAtBodyCircumference) {
+  RiskEvaluator::Config config;
+  config.min_cluster_cells = 1;
+  RiskEvaluator evaluator(config);
+
+  const std::vector<OccupiedCell> cells{{{0.5f, 0.0f}, 10, 10}};
+  const auto result =
+      evaluator.evaluate(forwardPose(), Vec2{0.5f, 0.0f}, 45.0f, cells);
+
+  ASSERT_TRUE(result.right.active);
+  EXPECT_NEAR(result.right.distance_m, 0.30f, 1e-5f);
+  EXPECT_NEAR(result.right.closing_speed_mps, 0.50f, 1e-5f);
+  EXPECT_NEAR(result.right.time_to_collision_s, 0.60f, 1e-5f);
+}
+
+TEST(RiskEvaluatorTest, DistanceRangeUsesClearanceToBody) {
+  RiskEvaluator::Config config;
+  config.min_cluster_cells = 1;
+  config.min_distance_m = 0.20f;
+  RiskEvaluator evaluator(config);
+
+  // Its centre is 0.30 m away, but its clearance to a 0.20 m body is 0.10 m.
+  const std::vector<OccupiedCell> cells{{{0.30f, 0.0f}, 10, 10}};
+  const auto result =
+      evaluator.evaluate(forwardPose(), Vec2{0.5f, 0.0f}, 45.0f, cells);
+
+  EXPECT_FALSE(result.right.active);
 }
 
 TEST(RiskEvaluatorTest, CorridorRejectsTangentialObstacle) {

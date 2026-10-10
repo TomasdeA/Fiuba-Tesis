@@ -84,7 +84,12 @@ bool RiskEvaluator::makeCandidate(const Pose2D& pose, const Vec2& velocity,
   }
 
   const Vec2 relative = cell.position - pose.position;
-  const float distance = relative.norm();
+  const float center_distance = relative.norm();
+  // Report and evaluate clearance to the user's body, rather than distance to
+  // the user's centre. The occupied cell radius is already accounted for when
+  // deciding whether the cell intersects the collision corridor below.
+  const float distance =
+      std::max(0.0f, center_distance - config_.body_radius_m);
   if (distance < config_.min_distance_m || distance > config_.max_distance_m) {
     return false;
   }
@@ -125,7 +130,10 @@ bool RiskEvaluator::makeCandidate(const Pose2D& pose, const Vec2& velocity,
     region_was_active = previously_active.left;
   }
 
-  const Vec2 obstacle_direction = relative * (1.0f / distance);
+  if (center_distance <= 1e-6f) {
+    return false;
+  }
+  const Vec2 obstacle_direction = relative * (1.0f / center_distance);
   const float closing_speed = std::max(0.0f, velocity.dot(obstacle_direction));
   const float closing_threshold =
       region_was_active

@@ -30,7 +30,7 @@ def generate_launch_description():
                               '/camera/camera/depth/image_rect_raw')
     hw_info  = ros_params.get('camera_info_topic',
                               '/camera/camera/depth/camera_info')
-    hw_imu   = ros_params.get('imu_topic',
+    hw_accel = ros_params.get('accel_topic',
                               '/camera/camera/accel/sample')
 
     _default_min, _default_max = _read_sensor_range()
@@ -45,8 +45,10 @@ def generate_launch_description():
             executable='depth_obstacle_filter_node',
             name='depth_obstacle_filter',
             parameters=[
-                params_file,
                 {
+                    # Merge before passing to ROS: a node-specific YAML entry
+                    # can override a later wildcard parameter file in Humble.
+                    **ros_params,
                     'range_min_m': depth_min,
                     'range_max_m': depth_max,
                     'debug': context.launch_configurations.get('debug', 'false').lower() == 'true',
@@ -59,7 +61,7 @@ def generate_launch_description():
             remappings=[
                 ('depth/image',       hw_depth),
                 ('depth/camera_info', hw_info),
-                ('imu',               hw_imu),
+                ('accel',             hw_accel),
             ],
             output='screen',
         )
@@ -84,7 +86,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'publish_local_mapper_interface',
             default_value='false',
-            description='Publicar free_endpoints locales para local_mapper',
+            description='Publicar evidencia de suelo para local_mapper',
         ),
         DeclareLaunchArgument(
             'performance',

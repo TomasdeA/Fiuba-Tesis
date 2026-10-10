@@ -29,7 +29,12 @@ services:
       - /dev:/dev
       - /sys:/sys:rw
       - /run/udev:/run/udev:ro
+      # El workspace conserva su nombre histórico dentro del contenedor.
       - ${HOST_WS}:${CONTAINER_WS}
+      # Recursos compartidos de la tesis, sin duplicar el workspace como nav_mapper.
+      - ${TESIS_ROOT}/docs:${TESIS_ROOT}/docs
+      - ${TESIS_ROOT}/tools:${TESIS_ROOT}/tools
+      - ${TESIS_ROOT}/bags:${TESIS_ROOT}/bags
       - /tmp/.X11-unix:/tmp/.X11-unix
       - ./docker/context.sh:/etc/profile.d/context.sh:ro
 
