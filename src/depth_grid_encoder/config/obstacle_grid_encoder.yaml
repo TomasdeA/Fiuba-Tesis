@@ -9,11 +9,12 @@ obstacle_grid_encoder:
     grid_mapping_mode: "angular"
     h_aperture_deg: 45.0
     h_aperture_min_deg: 15.0
-    h_aperture_max_deg: 70.0
-    # Apertura fisica maxima de la camara y resolucion angular interna.
+    h_aperture_max_deg: 55.0
+    # Semiapertura operativa en el marco alineado y resolucion angular interna.
+    # Limite experimental: 54.28 grados observados, redondeados a 55.
     # El nodo acumula primero a esta resolucion y luego reduce a cols=10
     # segun h_aperture_deg, manteniendo /perception/depth_grid en 5x10.
-    h_sensor_aperture_deg: 70.0
+    h_sensor_aperture_deg: 55.0
     h_resolution_deg: 1.0
     aperture_command_topic: "/perception/depth_grid/aperture_deg"
     aperture_state_topic: "/perception/depth_grid/aperture_state_deg"

@@ -383,7 +383,7 @@ def generate_launch_description():
             'flip_rows_for_display': False,
             'h_aperture_deg': 45.0,
             'h_aperture_min_deg': 15.0,
-            'h_aperture_max_deg': 70.0,
+            'h_aperture_max_deg': 55.0,
         }],
     )
 

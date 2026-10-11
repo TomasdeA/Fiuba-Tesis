@@ -124,7 +124,7 @@ class DepthGridHeatmapNode(Node):
         self.declare_parameter('encoder_node_name', '/obstacle_grid_encoder')
         self.declare_parameter('h_aperture_deg', 45.0)
         self.declare_parameter('h_aperture_min_deg', 15.0)
-        self.declare_parameter('h_aperture_max_deg', 70.0)
+        self.declare_parameter('h_aperture_max_deg', 55.0)
         self.declare_parameter(
             'spatial_awareness_topic',
             '/spatial_awareness/collision_risk',
