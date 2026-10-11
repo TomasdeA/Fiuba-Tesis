@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cerrno>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <dirent.h>
@@ -292,8 +293,7 @@ private:
 
         const int rows = msg->rows;
         const int cols = msg->cols;
-        if (!validate_shape(rows, cols, msg->intensities.size()) ||
-            !validate_shape(rows, cols, msg->active.size()))
+        if (!validate_shape(rows, cols, msg->intensities.size()))
         {
             return;
         }
@@ -303,7 +303,7 @@ private:
         for (int i = 0; i < expected; ++i)
         {
             const auto idx = static_cast<std::size_t>(i);
-            if (msg->active[idx])
+            if (std::isfinite(msg->intensities[idx]))
             {
                 const int intensity = clamp_int(
                     static_cast<int>(msg->intensities[idx] + 0.5f), 0, 100);

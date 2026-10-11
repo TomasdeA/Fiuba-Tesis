@@ -20,7 +20,6 @@ from rclpy.node import Node
 BG = (5, 8, 16)
 FG = (166, 220, 238)
 GRID = (34, 73, 112)
-INVALID_BG = (13, 20, 38)
 INVALID_FG = (74, 105, 126)
 PANEL_BG = (8, 13, 25)
 PANEL_EDGE = (72, 157, 210)
@@ -32,22 +31,20 @@ TEXT_DARK = (7, 20, 34)
 pygame = None
 
 
-def extract_intensity_and_active(msg: HapticGrid):
+def extract_intensities(msg: HapticGrid):
     rows = int(msg.rows)
     cols = int(msg.cols)
 
     m = np.array([float(v) for v in msg.intensities], dtype=np.float32)
-    active = np.array([bool(v) for v in msg.active], dtype=bool)
 
-    if m.size != rows * cols or active.size != rows * cols:
+    if rows <= 0 or cols <= 0 or m.size != rows * cols:
         raise RuntimeError(
             f'Tamaño inconsistente: rows*cols={rows*cols} '
-            f'pero llegó intensities={m.size} active={active.size}'
+            f'pero llegó intensities={m.size}'
         )
 
-    m = np.clip(m, 0.0, 100.0)
-    cnt = active.astype(np.int32)
-    return m.reshape((rows, cols)), cnt.reshape((rows, cols))
+    m = np.where(np.isfinite(m), np.clip(m, 0.0, 100.0), 0.0)
+    return m.reshape((rows, cols))
 
 
 def intensity_to_rgb(m: np.ndarray) -> np.ndarray:
@@ -109,7 +106,6 @@ class DepthGridHeatmapNode(Node):
 
         self.declare_parameter('topic', '/perception/haptic_grid')
         self.declare_parameter('show_values', True)
-        self.declare_parameter('invalid_text', '--')
         self.declare_parameter('refresh_hz', 20.0)
         self.declare_parameter('render_backend', 'pygame')
         self.declare_parameter('flip_rows_for_display', False)
@@ -134,7 +130,6 @@ class DepthGridHeatmapNode(Node):
 
         self.topic = str(self.get_parameter('topic').value)
         self.show_values = bool(self.get_parameter('show_values').value)
-        self.invalid_text = str(self.get_parameter('invalid_text').value)
         self.refresh_hz = float(self.get_parameter('refresh_hz').value)
         self.flip_rows_for_display = bool(
             self.get_parameter('flip_rows_for_display').value
@@ -211,7 +206,6 @@ class DepthGridHeatmapNode(Node):
 
         # Estado compartido (actualizado por el callback)
         self.latest_m = None     # intensidad 0..100
-        self.latest_cnt = None   # count
         self.latest_shape = None
         self.spatial_awareness = {
             'left': 0.0,
@@ -312,13 +306,12 @@ class DepthGridHeatmapNode(Node):
 
     def cb_haptic_grid(self, msg: HapticGrid):
         try:
-            m, cnt = extract_intensity_and_active(msg)
+            m = extract_intensities(msg)
         except Exception as e:
             self.get_logger().error(f'No pude parsear HapticGrid: {e}')
             return
 
         self.latest_m = m
-        self.latest_cnt = cnt
         self.latest_shape = m.shape
         self._dirty = True
 
@@ -806,7 +799,7 @@ class DepthGridHeatmapNode(Node):
                 center=True,
             )
 
-    def _draw_heatmap_curved(self, m: np.ndarray, cnt: np.ndarray):
+    def _draw_heatmap_curved(self, m: np.ndarray):
         rows, cols = m.shape
         width, height = self.screen.get_size()
         self._draw_background()
@@ -849,8 +842,7 @@ class DepthGridHeatmapNode(Node):
         for r in range(rows):
             view_r = display_row(rows, r, self.flip_rows_for_display)
             for c in range(cols):
-                valid = cnt[r, c] > 0
-                color = INVALID_BG if not valid else tuple(rgb[r, c])
+                color = tuple(rgb[r, c])
                 points = self._cell_points_curved(
                     plot_rect,
                     h_edges,
@@ -863,20 +855,12 @@ class DepthGridHeatmapNode(Node):
                     int(round(sum(p[1] for p in points) / 4.0)),
                 )
 
-                if valid:
-                    v = float(np.clip(m[r, c], 0.0, 100.0))
-                    radius = int(min_radius + (v / 100.0) * (max_radius - min_radius))
-                    self._draw_signal_dot(center, radius, color, v)
-                else:
-                    radius = max(2, int(min_radius * 0.55))
-                    pygame.draw.circle(self.screen, INVALID_FG, center, radius, 1)
+                v = float(m[r, c])
+                radius = int(min_radius + (v / 100.0) * (max_radius - min_radius))
+                self._draw_signal_dot(center, radius, color, v)
 
-                if self.show_values and valid:
-                    txt = (
-                        self.invalid_text
-                        if not np.isfinite(v)
-                        else f'{int(round(v))}'
-                    )
+                if self.show_values:
+                    txt = f'{int(round(v))}'
                     value_color = TEXT_DARK if v >= 56 else HOT
                     self._draw_text(
                         txt,
@@ -885,14 +869,6 @@ class DepthGridHeatmapNode(Node):
                         value_color,
                         center=True,
                         shadow=v < 56,
-                    )
-                elif self.show_values:
-                    self._draw_text(
-                        self.invalid_text,
-                        center,
-                        self.value_font,
-                        INVALID_FG,
-                        center=True,
                     )
 
         near_arc = [
@@ -951,9 +927,9 @@ class DepthGridHeatmapNode(Node):
         pygame.display.flip()
         self.clock.tick(max(1.0, self.refresh_hz))
 
-    def _draw_heatmap(self, m: np.ndarray, cnt: np.ndarray):
+    def _draw_heatmap(self, m: np.ndarray):
         if self.pygame_view_mode == 'curved':
-            self._draw_heatmap_curved(m, cnt)
+            self._draw_heatmap_curved(m)
             return
 
         rows, cols = m.shape
@@ -973,7 +949,6 @@ class DepthGridHeatmapNode(Node):
 
         plot_rect, cbar_rect = self._layout(rows, cols)
         rgb = intensity_to_neon_rgb(m)
-        rgb[cnt <= 0] = INVALID_BG
         rgb = display_matrix(rgb, self.flip_rows_for_display)
 
         surf = pygame.surfarray.make_surface(np.transpose(rgb, (1, 0, 2)))
@@ -1051,17 +1026,8 @@ class DepthGridHeatmapNode(Node):
                         view_r,
                         c,
                     )
-                    if cnt[r, c] <= 0:
-                        txt = self.invalid_text
-                        color = INVALID_FG
-                    else:
-                        v = m[r, c]
-                        txt = (
-                            self.invalid_text
-                            if not np.isfinite(v)
-                            else f'{int(round(v))}'
-                        )
-                        color = FG
+                    txt = f'{int(round(m[r, c]))}'
+                    color = FG
                     if cell.width >= 18 and cell.height >= 14:
                         self._draw_text(
                             txt,
@@ -1107,7 +1073,7 @@ class DepthGridHeatmapNode(Node):
         pygame.display.flip()
         self.clock.tick(max(1.0, self.refresh_hz))
 
-    def _draw_heatmap_matplotlib(self, m: np.ndarray, cnt: np.ndarray):
+    def _draw_heatmap_matplotlib(self, m: np.ndarray):
         rows, cols = m.shape
 
         if self.im is None or self.im.get_array().shape != m.shape:
@@ -1148,15 +1114,7 @@ class DepthGridHeatmapNode(Node):
                         r,
                         self.flip_rows_for_display,
                     )
-                    if cnt[r, c] <= 0:
-                        txt = self.invalid_text
-                    else:
-                        v = m[r, c]
-                        txt = (
-                            self.invalid_text
-                            if not np.isfinite(v)
-                            else f'{int(round(v))}'
-                        )
+                    txt = f'{int(round(m[r, c]))}'
                     self.texts.append(
                         self.ax.text(
                             c,
@@ -1184,13 +1142,12 @@ class DepthGridHeatmapNode(Node):
             return
 
         m = self.latest_m
-        cnt = self.latest_cnt
 
         try:
             if self.render_backend == 'matplotlib':
-                self._draw_heatmap_matplotlib(m, cnt)
+                self._draw_heatmap_matplotlib(m)
             else:
-                self._draw_heatmap(m, cnt)
+                self._draw_heatmap(m)
             self._dirty = False
 
         except Exception as e:
