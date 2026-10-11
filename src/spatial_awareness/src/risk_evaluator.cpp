@@ -100,9 +100,11 @@ bool RiskEvaluator::makeCandidate(const Pose2D& pose, const Vec2& velocity,
   }
   const Vec2 right{forward.z, -forward.x};
   const float angle = std::atan2(right.dot(relative), forward.dot(relative));
-  const float aperture =
-      nav_math::deg2rad(std::max(0.0f, aperture_half_angle_deg) +
-                        config_.fov_margin_deg);
+  // Start contextual coverage inside the frontal edge so uncertainty near
+  // the boundary cannot leave an angular gap between the two output layers.
+  // Negative margins are ignored rather than widening the excluded region.
+  const float aperture = nav_math::deg2rad(std::max(
+      0.0f, aperture_half_angle_deg - std::max(0.0f, config_.fov_margin_deg)));
   if (std::abs(angle) <= aperture) {
     return false;
   }

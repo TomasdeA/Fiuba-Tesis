@@ -116,7 +116,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument('h_aperture_deg', default_value='45.0'),
         DeclareLaunchArgument('h_aperture_min_deg', default_value='15.0'),
-        DeclareLaunchArgument('h_aperture_max_deg', default_value='70.0'),
+        DeclareLaunchArgument('h_aperture_max_deg', default_value='55.0'),
         heatmap,
         signal_monitor,
         odometry_path,

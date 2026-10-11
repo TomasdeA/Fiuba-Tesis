@@ -99,7 +99,6 @@ private:
     out.rows = rows;
     out.cols = cols;
     out.intensities.assign(static_cast<std::size_t>(expected), 0.0f);
-    out.active.assign(static_cast<std::size_t>(expected), false);
 
     for (int i = 0; i < expected; ++i) {
       const auto& cell = msg->cells[static_cast<std::size_t>(i)];
@@ -108,7 +107,6 @@ private:
       }
       out.intensities[static_cast<std::size_t>(i)] =
           distanceToIntensity(cell.min_m);
-      out.active[static_cast<std::size_t>(i)] = true;
     }
 
     if (spatialAwarenessIsUsable()) {
@@ -149,7 +147,6 @@ private:
     for (int row = 0; row < grid.rows; ++row) {
       const auto idx = static_cast<std::size_t>(row * grid.cols + col);
       grid.intensities[idx] = std::max(grid.intensities[idx], risk_intensity);
-      grid.active[idx] = true;
     }
   }
 

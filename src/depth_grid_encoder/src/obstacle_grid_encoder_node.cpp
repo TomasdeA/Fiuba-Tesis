@@ -57,11 +57,11 @@ public:
         h_aperture_min_deg_ = static_cast<float>(
             this->declare_parameter<double>("h_aperture_min_deg", 15.0));
         h_aperture_max_deg_ = static_cast<float>(
-            this->declare_parameter<double>("h_aperture_max_deg", 70.0));
+            this->declare_parameter<double>("h_aperture_max_deg", 55.0));
         h_aperture_deg_ = static_cast<float>(
             this->declare_parameter<double>("h_aperture_deg", 45.0));
         h_sensor_aperture_deg_ = static_cast<float>(
-            this->declare_parameter<double>("h_sensor_aperture_deg", 70.0));
+            this->declare_parameter<double>("h_sensor_aperture_deg", 55.0));
         h_resolution_deg_ = static_cast<float>(
             this->declare_parameter<double>("h_resolution_deg", 1.0));
         clampAperture();
@@ -183,7 +183,8 @@ private:
     static int binIndex(float value, float min_value, float max_value, int bins)
     {
         const float range = max_value - min_value;
-        if (range <= 0.0f) return -1;
+        if (range <= 0.0f || !std::isfinite(value) ||
+            value < min_value || value >= max_value) return -1;
         const int idx = static_cast<int>((value - min_value) / range * bins);
         return (idx >= 0 && idx < bins) ? idx : -1;
     }
@@ -601,8 +602,8 @@ private:
     std::string grid_mapping_mode_{"angular"};
     float h_aperture_deg_{45.0f};
     float h_aperture_min_deg_{15.0f};
-    float h_aperture_max_deg_{70.0f};
-    float h_sensor_aperture_deg_{70.0f};
+    float h_aperture_max_deg_{55.0f};
+    float h_sensor_aperture_deg_{55.0f};
     float h_resolution_deg_{1.0f};
     float y_default_max_m_ = 2.20f;
     float y_margin_m_ = 0.10f;

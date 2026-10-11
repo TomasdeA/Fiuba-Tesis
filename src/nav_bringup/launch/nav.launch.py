@@ -86,6 +86,9 @@ def _make_realsense_node(context, *args, **kwargs):
         'enable_color': use_visual,
         'align_depth.enable': use_visual,
         'unite_imu_method': 1,
+        # Publica las transformaciones estáticas internas necesarias para
+        # relacionar los frames ópticos de color, profundidad e IMU.
+        'publish_tf': True,
         'depth_module.depth_profile': depth_profile,
         'initial_reset': True,
         'reconnect_timeout': 10.0,
@@ -380,7 +383,7 @@ def generate_launch_description():
             'flip_rows_for_display': False,
             'h_aperture_deg': 45.0,
             'h_aperture_min_deg': 15.0,
-            'h_aperture_max_deg': 70.0,
+            'h_aperture_max_deg': 55.0,
         }],
     )
 

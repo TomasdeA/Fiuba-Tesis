@@ -173,4 +173,45 @@ TEST(RiskEvaluatorTest, ClosingSpeedHysteresisAvoidsThresholdChatter) {
   EXPECT_TRUE(retained.right.active);
 }
 
+// Use one occupied cell and velocity directed at it to isolate aperture
+// coverage from clustering, corridor and closing-speed rejection.
+spatial_awareness::RiskResult riskAtAngle(float angle_deg, float aperture_deg,
+                       float margin_deg = 3.0f) {
+  RiskEvaluator::Config config;
+  config.min_cluster_cells = 1;
+  config.fov_margin_deg = margin_deg;
+  const float angle = nav_math::deg2rad(angle_deg);
+  const Vec2 position{0.7f * std::sin(angle), 0.7f * std::cos(angle)};
+  return RiskEvaluator(config).evaluate(
+      forwardPose(), position, aperture_deg, {{position, 10, 10}});
+}
+
+TEST(RiskEvaluatorTest, CoversFormerGapOnBothSidesOfFrontalAperture) {
+  for (float angle : {45.5f, 46.0f, 47.5f, 48.5f}) {
+    EXPECT_TRUE(riskAtAngle(angle, 45.0f).right.active) << angle;
+    EXPECT_TRUE(riskAtAngle(-angle, 45.0f).left.active) << angle;
+  }
+}
+
+TEST(RiskEvaluatorTest, MarginCreatesOverlapAndKeepsFrontalInteriorExcluded) {
+  EXPECT_TRUE(riskAtAngle(44.0f, 45.0f).right.active);
+  EXPECT_TRUE(riskAtAngle(-44.0f, 45.0f).left.active);
+  EXPECT_FALSE(riskAtAngle(41.0f, 45.0f).right.active);
+  EXPECT_FALSE(riskAtAngle(-41.0f, 45.0f).left.active);
+}
+
+TEST(RiskEvaluatorTest, CoverageTracksConfiguredAperture) {
+  EXPECT_TRUE(riskAtAngle(31.0f, 30.0f).right.active);
+  EXPECT_FALSE(riskAtAngle(31.0f, 60.0f).right.active);
+  EXPECT_TRUE(riskAtAngle(61.0f, 60.0f).right.active);
+}
+
+TEST(RiskEvaluatorTest, ZeroOrNegativeMarginDoesNotLeaveAngularGap) {
+  for (float margin : {0.0f, -3.0f}) {
+    EXPECT_TRUE(riskAtAngle(46.0f, 45.0f, margin).right.active);
+    EXPECT_TRUE(riskAtAngle(-46.0f, 45.0f, margin).left.active);
+    EXPECT_FALSE(riskAtAngle(44.0f, 45.0f, margin).right.active);
+  }
+}
+
 }  // namespace

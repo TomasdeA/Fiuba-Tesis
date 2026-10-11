@@ -20,6 +20,7 @@ spatial_awareness:
     twist_consistency_tolerance_mps: 0.35
     ttc_min_s: 0.25
     ttc_max_s: 2.00
+    # Overlap inside the communicated frontal aperture, not an uncovered gap.
     fov_margin_deg: 3.0
     rear_half_angle_deg: 45.0
     default_aperture_deg: 45.0
