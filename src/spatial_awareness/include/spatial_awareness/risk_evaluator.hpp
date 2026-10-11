@@ -55,6 +55,7 @@ class RiskEvaluator {
     float closing_speed_hysteresis_mps{0.03f};
     float ttc_min_s{0.25f};
     float ttc_max_s{2.00f};
+    // Overlap inside each frontal edge; never expands the excluded sector.
     float fov_margin_deg{3.0f};
     float rear_half_angle_deg{45.0f};
   };

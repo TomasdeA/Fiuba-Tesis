@@ -1,7 +1,8 @@
 # spatial_awareness
 
 Detecta riesgo de colisión con obstáculos ocupados del mapa local que están
-fuera del campo horizontal ya comunicado al usuario.
+fuera del campo horizontal ya comunicado al usuario, con una zona de
+solapamiento en sus bordes.
 
 ## Entradas
 
@@ -10,7 +11,12 @@ fuera del campo horizontal ya comunicado al usuario.
 - `/perception/depth_grid/aperture_state_deg` (`std_msgs/Float32`)
 
 La apertura es un semiángulo. Un valor de `45` representa el intervalo
-horizontal `[-45 deg, +45 deg]`.
+horizontal `[-45 deg, +45 deg]`. `fov_margin_deg` define un solapamiento
+hacia el interior de cada borde: con margen 3, la capa contextual evalúa
+ángulos de valor absoluto mayor que 42 grados. La franja de 42 a 45 grados
+puede ser atendida por ambas capas; no queda una banda exterior sin evaluar.
+Un margen cero limita el contexto al exterior de la apertura. Los valores
+negativos se tratan como cero.
 
 ## Salida
 
@@ -28,7 +34,7 @@ estimado hasta colisión.
 Solo se consideran componentes de al menos `min_cluster_cells` celdas con
 ocupación mayor o igual a `occupancy_threshold`. Una celda genera riesgo si:
 
-- está fuera del FOV comunicado;
+- está fuera del FOV comunicado o en su banda de solapamiento;
 - su distancia libre hasta la circunferencia corporal (distancia al centro de
   la celda menos `body_radius_m`) está entre `min_distance_m` y
   `max_distance_m`;
